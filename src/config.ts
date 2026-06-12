@@ -69,6 +69,7 @@ export const BATTLE = {
   overfitStormCells: 20,
   distillRatio: 0.5,
   shieldMs: 10_000,
+  hallucinateCells: 8,
   // 嘴炮触发阈值
   bigHitAt: 18,
   lowHpAt: 30,

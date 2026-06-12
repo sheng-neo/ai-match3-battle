@@ -14,13 +14,14 @@ export class HpBar {
     private width: number,
     private height: number,
     private color = 0x2cb67d,
+    private max = BATTLE.maxHp,
   ) {
-    this.value = BATTLE.maxHp;
+    this.value = this.max;
     const bg = scene.add.rectangle(0, 0, width, height, 0x000000, 0.55).setOrigin(0, 0.5);
     bg.setStrokeStyle(2, 0x2e2e3e, 1);
     this.fill = scene.add.rectangle(2, 0, width - 4, height - 6, color, 1).setOrigin(0, 0.5);
     this.label = scene.add
-      .text(width / 2, 0, `${BATTLE.maxHp}`, {
+      .text(width / 2, 0, `${this.max}`, {
         fontFamily: UI_FONT,
         fontSize: `${Math.round(height * 0.72)}px`,
         color: '#fffffe',
@@ -32,8 +33,8 @@ export class HpBar {
   }
 
   set(hp: number): void {
-    const clamped = Math.max(0, Math.min(BATTLE.maxHp, hp));
-    const ratio = clamped / BATTLE.maxHp;
+    const clamped = Math.max(0, Math.min(this.max, hp));
+    const ratio = clamped / this.max;
     this.value = clamped;
     this.label.setText(`${clamped}`);
     this.scene.tweens.add({ targets: this.fill, displayWidth: Math.max(0.001, (this.width - 4) * ratio), duration: 220, ease: 'Quad.easeOut' });

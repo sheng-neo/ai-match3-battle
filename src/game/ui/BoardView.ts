@@ -11,15 +11,21 @@ export interface PieceLike {
   lockHits: number;
 }
 
-/** 单个棋子的显示对象组：底块 + 特殊覆盖层 + 锁层 */
+/** 单个棋子的显示对象组：底块 + 特殊覆盖层 + 锁层（含特殊块呼吸脉冲） */
 export class PieceView {
   root: Phaser.GameObjects.Container;
   tile: Phaser.GameObjects.Image;
   overlay: Phaser.GameObjects.Image;
   lock: Phaser.GameObjects.Image;
   pieceId = -1;
+  private state: PieceLike | null = null;
+  private pulse?: Phaser.Tweens.Tween;
 
-  constructor(scene: Phaser.Scene, displaySize: number) {
+  constructor(
+    private scene: Phaser.Scene,
+    displaySize: number,
+    private mini: boolean,
+  ) {
     this.tile = scene.add.image(0, 0, 'tile-0').setDisplaySize(displaySize, displaySize);
     this.overlay = scene.add.image(0, 0, 'ov-row').setDisplaySize(displaySize, displaySize).setVisible(false);
     this.lock = scene.add.image(0, 0, 'ov-lock3').setDisplaySize(displaySize, displaySize).setVisible(false);
@@ -28,6 +34,8 @@ export class PieceView {
 
   apply(piece: PieceLike): void {
     this.pieceId = piece.id;
+    this.state = { ...piece };
+    this.stopFx();
     if (piece.kind === PieceKind.Garbage) {
       this.tile.setTexture('tile-garbage');
       this.overlay.setVisible(false);
@@ -42,9 +50,36 @@ export class PieceView {
       else this.overlay.setVisible(false);
     }
     this.setLock(piece.lockHits);
+    // 特殊块呼吸脉冲（迷你盘不开，省性能）
+    if (!this.mini && piece.special !== Special.None && piece.kind === PieceKind.Normal) {
+      const target = piece.special === Special.Singularity ? this.tile : this.overlay;
+      target.setAlpha(1);
+      this.pulse = this.scene.tweens.add({
+        targets: target,
+        alpha: { from: 1, to: 0.55 },
+        scale: { from: target.scale, to: target.scale * 1.05 },
+        yoyo: true,
+        repeat: -1,
+        duration: 460,
+        ease: 'Sine.easeInOut',
+      });
+    }
+  }
+
+  /** 幻觉变色：保留特殊/锁状态只换颜色 */
+  recolorTo(color: number): void {
+    if (!this.state) return;
+    this.apply({ ...this.state, color });
+  }
+
+  /** 原地升格为特殊块 */
+  setSpecial(special: Special): void {
+    if (!this.state) return;
+    this.apply({ ...this.state, special });
   }
 
   setLock(hits: number): void {
+    if (this.state) this.state.lockHits = hits;
     if (hits > 0) {
       this.lock.setTexture(`ov-lock${Math.min(3, Math.max(1, hits))}`).setVisible(true);
     } else {
@@ -52,7 +87,17 @@ export class PieceView {
     }
   }
 
+  stopFx(): void {
+    if (this.pulse) {
+      this.pulse.remove();
+      this.pulse = undefined;
+    }
+    this.overlay.setAlpha(1);
+    this.tile.setAlpha(1);
+  }
+
   reset(): void {
+    this.stopFx();
     this.root.setScale(1).setAlpha(1).setAngle(0).setVisible(true);
   }
 }
@@ -148,12 +193,13 @@ export class BoardView {
       pv.reset();
       return pv;
     }
-    const fresh = new PieceView(this.scene, this.opts.cell - 6);
+    const fresh = new PieceView(this.scene, this.opts.cell - 6, !!this.opts.mini);
     this.container.add(fresh.root);
     return fresh;
   }
 
   private releaseView(pv: PieceView): void {
+    pv.stopFx();
     pv.root.setVisible(false);
     this.pool.push(pv);
   }
@@ -196,5 +242,24 @@ export class BoardView {
 
   burstColor(pos: Pos, color: number | null, count: number): void {
     this.burst(pos, color !== null ? (COLOR_HEX[color] ?? 0xffffff) : 0xffffff, count);
+  }
+
+  /** 冲击环：消除/爆破/升格时的扩散圆环 */
+  ring(pos: Pos, color: number, scaleTo = 2.6, duration = 320): void {
+    if (this.opts.mini) return;
+    const { x, y } = this.cellXY(pos);
+    const c = this.scene.add
+      .circle(x, y, this.opts.cell * 0.34)
+      .setStrokeStyle(Math.max(3, this.opts.cell * 0.07), color, 0.95)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.container.add(c);
+    this.scene.tweens.add({
+      targets: c,
+      scale: scaleTo,
+      alpha: 0,
+      duration,
+      ease: 'Quad.easeOut',
+      onComplete: () => c.destroy(),
+    });
   }
 }

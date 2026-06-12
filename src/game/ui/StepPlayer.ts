@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ANIM, COLOR_HEX, INSTANT_THRESHOLD } from '../../config';
+// COLOR_HEX 用于消除冲击环着色
 import { PieceKind, Special, StepEvent } from '../../engine/types';
 import type { BoardView } from './BoardView';
 
@@ -116,15 +117,31 @@ export class StepPlayer {
 
       case 'match': {
         this.sfx('pop', s.combo);
+        if (this.effects && !instant && s.combo >= 3) {
+          this.opts.onShake?.(Math.min(0.006, 0.001 + s.combo * 0.0007));
+        }
         const dur = this.d(ANIM.pop, instant);
         const jobs: Promise<void>[] = [];
+        const burstN = Math.min(16, 5 + s.combo * 2);
+        let ringBudget = 6; // 单波冲击环上限，防大清屏卡顿
         for (const c of s.cleared) {
           if (v.pieceIdAt(c.at) === c.pieceId) v.setIndex(c.at, null);
           const pv = v.spriteOf(c.pieceId);
           if (!pv) continue;
-          if (this.effects && !instant) v.burstColor(c.at, c.color, c.byPurge ? 4 : 6);
+          if (this.effects && !instant) {
+            pv.stopFx();
+            v.burstColor(c.at, c.color, c.byPurge ? 4 : burstN);
+            if (ringBudget-- > 0 && (s.combo >= 2 || c.special !== Special.None)) {
+              v.ring(c.at, c.color !== null ? (COLOR_HEX[c.color] ?? 0xffffff) : 0xffffff, 2.2, 300);
+            }
+          }
           jobs.push(
-            this.tween(pv.root, { scale: 0, alpha: 0 }, dur, 'Back.easeIn').then(() => v.removePiece(c.pieceId)),
+            this.tween(
+              pv.root,
+              { scale: 0, alpha: 0, angle: (c.pieceId % 2 ? 1 : -1) * 70 },
+              dur,
+              'Back.easeIn',
+            ).then(() => v.removePiece(c.pieceId)),
           );
         }
         await Promise.all(jobs);
@@ -227,6 +244,46 @@ export class StepPlayer {
         break;
       }
 
+      case 'recolor': {
+        this.sfx('glitch');
+        const jobs: Promise<void>[] = [];
+        for (const c of s.cells) {
+          const pv = v.spriteOf(c.pieceId);
+          if (!pv) continue;
+          if (this.effects && !instant) {
+            v.burst(c.at, 0xe53170, 5);
+            v.ring(c.at, 0xe53170, 1.8, 260);
+          }
+          pv.recolorTo(c.color);
+          if (!instant) {
+            pv.root.setScale(0.6);
+            jobs.push(this.tween(pv.root, { scale: 1 }, this.d(170, instant), 'Back.easeOut'));
+          }
+        }
+        await Promise.all(jobs);
+        break;
+      }
+
+      case 'promote': {
+        this.sfx('charge');
+        const jobs: Promise<void>[] = [];
+        for (const c of s.cells) {
+          const pv = v.spriteOf(c.pieceId);
+          if (!pv) continue;
+          pv.setSpecial(c.special);
+          if (this.effects && !instant) {
+            v.ring(c.at, 0xfffffe, 2.4, 320);
+            v.burst(c.at, 0xfffffe, 8);
+          }
+          if (!instant) {
+            pv.root.setScale(1.3);
+            jobs.push(this.tween(pv.root, { scale: 1 }, this.d(ANIM.spawnSpecial, instant), 'Back.easeOut'));
+          }
+        }
+        await Promise.all(jobs);
+        break;
+      }
+
       case 'shuffle': {
         this.sfx('shuffle');
         for (const m of s.moves) if (v.pieceIdAt(m.from) === m.pieceId) v.setIndex(m.from, null);
@@ -244,41 +301,63 @@ export class StepPlayer {
     }
   }
 
-  /** 特殊块触发的光效：激光束 / 爆破圈 / 奇点闪光 */
+  /** 特殊块触发的光效：双层激光束 / 爆破圈 / 奇点坍缩闪光 */
   private async flashSpecial(s: Extract<StepEvent, { t: 'specialTrigger' }>): Promise<void> {
     const v = this.view;
     const cellPx = v.cell;
     const boardPx = cellPx * 8;
     const dur = ANIM.beam / this.speed;
-    const mk = (x: number, y: number, w: number, h: number, color: number): Promise<void> => {
-      const r = this.scene.add.rectangle(x, y, w, h, color, 0.55).setBlendMode(Phaser.BlendModes.ADD);
+    const mk = (x: number, y: number, w: number, h: number, color: number, alpha = 0.55): Promise<void> => {
+      const r = this.scene.add.rectangle(x, y, w, h, color, alpha).setBlendMode(Phaser.BlendModes.ADD);
       v.container.add(r);
       return this.tween(r, { alpha: 0 }, dur).then(() => r.destroy());
+    };
+    /** 双层光束：彩色辉光 + 白色核心，并沿线撒火花 */
+    const beam = (horizontal: boolean, at: number, color: number): Promise<void[]> => {
+      const jobs: Promise<void>[] = [];
+      if (horizontal) {
+        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 1.05, color, 0.4));
+        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 0.4, 0xffffff, 0.9));
+      } else {
+        jobs.push(mk(at, boardPx / 2, cellPx * 1.05, boardPx, color, 0.4));
+        jobs.push(mk(at, boardPx / 2, cellPx * 0.4, boardPx, 0xffffff, 0.9));
+      }
+      for (let i = 0; i < 8; i += 2) {
+        const p = horizontal ? { x: i, y: Math.round(at / cellPx - 0.5) } : { x: Math.round(at / cellPx - 0.5), y: i };
+        v.burst(p, 0xffffff, 4);
+      }
+      return Promise.all(jobs);
     };
     const src = v.cellXY(s.source);
     switch (s.special) {
       case Special.RowLaser:
         this.sfx('laser');
-        this.opts.onShake?.(0.002);
-        await mk(boardPx / 2, src.y, boardPx, cellPx * 0.7, 0xffffff);
+        this.opts.onShake?.(0.0025);
+        await beam(true, src.y, 0x3da9fc);
         break;
       case Special.ColLaser:
         this.sfx('laser');
-        this.opts.onShake?.(0.002);
-        await mk(src.x, boardPx / 2, cellPx * 0.7, boardPx, 0xffffff);
+        this.opts.onShake?.(0.0025);
+        await beam(false, src.x, 0x3da9fc);
         break;
       case Special.Kernel:
         this.sfx('boom');
-        this.opts.onShake?.(0.005);
-        await mk(src.x, src.y, cellPx * 3, cellPx * 3, 0xff8906);
+        this.opts.onShake?.(0.006);
+        v.ring(s.source, 0xff8906, 3.6, 380);
+        v.burst(s.source, 0xff8906, 18);
+        await mk(src.x, src.y, cellPx * 3.1, cellPx * 3.1, 0xff8906, 0.5);
         break;
       case Special.Singularity: {
         this.sfx('sing');
-        this.opts.onShake?.(0.006);
-        const jobs = [mk(boardPx / 2, boardPx / 2, boardPx, boardPx, 0x7f5af0)];
-        for (const p of s.affected.slice(0, 14)) {
+        this.opts.onShake?.(0.008);
+        v.ring(s.source, 0x7f5af0, 4.5, 460);
+        v.ring(s.source, 0xfffffe, 3, 380);
+        v.burst(s.source, 0x7f5af0, 22);
+        const jobs = [mk(boardPx / 2, boardPx / 2, boardPx, boardPx, 0x7f5af0, 0.4)];
+        for (const p of s.affected.slice(0, 10)) {
+          v.burst(p, 0x7f5af0, 5);
           const xy = v.cellXY(p);
-          jobs.push(mk(xy.x, xy.y, cellPx * 0.9, cellPx * 0.9, 0xffffff));
+          jobs.push(mk(xy.x, xy.y, cellPx * 0.9, cellPx * 0.9, 0xffffff, 0.6));
         }
         await Promise.all(jobs);
         break;

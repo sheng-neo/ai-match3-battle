@@ -70,7 +70,9 @@ export type StepEvent =
   | { t: 'garbageAdd'; cells: { at: Pos; pieceId: number; replacedId: number }[] }
   | { t: 'lockAdd'; cells: { at: Pos; pieceId: number; hits: number }[] }
   | { t: 'lockHit'; at: Pos; pieceId: number; remaining: number }
-  | { t: 'shuffle'; moves: { pieceId: number; from: Pos; to: Pos }[] };
+  | { t: 'shuffle'; moves: { pieceId: number; from: Pos; to: Pos }[] }
+  | { t: 'recolor'; cells: { at: Pos; pieceId: number; color: Color }[] }
+  | { t: 'promote'; cells: { at: Pos; pieceId: number; special: Special }[] };
 
 export interface ResolveSummary {
   valid: boolean;

@@ -1,7 +1,7 @@
 import { BATTLE } from '../config';
 import { MatchEngine } from '../engine/engine';
 import { mulberry32, type RNG } from '../engine/rng';
-import { Pos, StepEvent, SwapResult } from '../engine/types';
+import { Pos, Special, StepEvent, SwapResult } from '../engine/types';
 import type { TauntEventType } from '../shared/tauntProtocol';
 import { CharacterDef } from './characters';
 import { AttackPlan, attackPlan, computeDamage, energyGain, hasAttack } from './damage';
@@ -14,6 +14,7 @@ export interface SideStats {
   ultsCast: number;
   attacksSent: number;
   garbagePurged: number;
+  fusions: number;
   swaps: number;
 }
 
@@ -22,12 +23,28 @@ export interface CombatantState {
   engine: MatchEngine;
   char: CharacterDef;
   hp: number;
+  maxHp: number;
+  /** 模式修饰符的伤害倍率（与角色被动乘算） */
+  damageMod: number;
   energy: number;
   lastSwapAt: number;
   rateLimitedUntil: number;
   shieldUntil: number;
   stats: SideStats;
   lowHpNotified: boolean;
+}
+
+/** 模式修饰符：爬塔/无尽/每日用来改变战局规则 */
+export interface BattleModifiers {
+  p1HpMul?: number;
+  p2HpMul?: number;
+  p1DamageMul?: number;
+  p2DamageMul?: number;
+  /** 无尽模式血量继承：p1 的初始 HP（绝对值，受 maxHp 截断） */
+  p1StartHp?: number;
+  durationMs?: number;
+  startGarbageP1?: number;
+  startLocksP1?: number;
 }
 
 export type RejectReason = 'over' | 'cooldown' | 'energy' | 'invalid';
@@ -53,6 +70,7 @@ export interface BattleConfig {
   p2: { char: CharacterDef; seed: number };
   rngSeed: number;
   durationMs?: number;
+  mods?: BattleModifiers;
 }
 
 export class BattleController {
@@ -66,24 +84,36 @@ export class BattleController {
   private listeners: { [K in keyof BattleEvents]?: Listener<K>[] } = {};
 
   constructor(cfg: BattleConfig) {
-    this.duration = cfg.durationMs ?? BATTLE.durationMs;
+    const mods = cfg.mods ?? {};
+    this.duration = mods.durationMs ?? cfg.durationMs ?? BATTLE.durationMs;
     this.rng = mulberry32(cfg.rngSeed);
-    const mk = (side: Side, char: CharacterDef, seed: number): CombatantState => ({
-      side,
-      engine: new MatchEngine({ seed }),
-      char,
-      hp: BATTLE.maxHp,
-      energy: 0,
-      lastSwapAt: -99999,
-      rateLimitedUntil: 0,
-      shieldUntil: 0,
-      stats: { damageDealt: 0, maxCombo: 0, ultsCast: 0, attacksSent: 0, garbagePurged: 0, swaps: 0 },
-      lowHpNotified: false,
-    });
-    this.combatants = {
-      p1: mk('p1', cfg.p1.char, cfg.p1.seed),
-      p2: mk('p2', cfg.p2.char, cfg.p2.seed),
+    const mk = (side: Side, char: CharacterDef, seed: number, hpMul: number, damageMod: number): CombatantState => {
+      const maxHp = Math.round(BATTLE.maxHp * hpMul);
+      return {
+        side,
+        engine: new MatchEngine({ seed }),
+        char,
+        hp: maxHp,
+        maxHp,
+        damageMod,
+        energy: 0,
+        lastSwapAt: -99999,
+        rateLimitedUntil: 0,
+        shieldUntil: 0,
+        stats: { damageDealt: 0, maxCombo: 0, ultsCast: 0, attacksSent: 0, garbagePurged: 0, fusions: 0, swaps: 0 },
+        lowHpNotified: false,
+      };
     };
+    this.combatants = {
+      p1: mk('p1', cfg.p1.char, cfg.p1.seed, mods.p1HpMul ?? 1, mods.p1DamageMul ?? 1),
+      p2: mk('p2', cfg.p2.char, cfg.p2.seed, mods.p2HpMul ?? 1, mods.p2DamageMul ?? 1),
+    };
+    if (mods.p1StartHp !== undefined) {
+      this.combatants.p1.hp = Math.max(1, Math.min(this.combatants.p1.maxHp, Math.round(mods.p1StartHp)));
+    }
+    // 开局干扰（在渲染层 init 之前生效，事件无需对外发）
+    if (mods.startGarbageP1) this.combatants.p1.engine.applyGarbage(mods.startGarbageP1);
+    if (mods.startLocksP1) this.combatants.p1.engine.applyLocks(mods.startLocksP1, BATTLE.lockHits);
   }
 
   on<K extends keyof BattleEvents>(event: K, cb: Listener<K>): void {
@@ -186,6 +216,32 @@ export class BattleController {
         this.emit('debuff', { side, type: 'shield', ms: BATTLE.shieldMs });
         break;
       }
+      case 'hallucinate': {
+        const recolor = o.engine.scrambleColors(BATTLE.hallucinateCells);
+        if (recolor.length) this.emit('steps', { side: oppSide, steps: recolor });
+        const lock = o.engine.applyLocks(1, BATTLE.lockHits);
+        if (lock.length) this.emit('steps', { side: oppSide, steps: lock });
+        if (oppSide === 'p2') this.emit('taunt', { type: 'botLocked', combo: 0 });
+        break;
+      }
+      case 'twin_resonance': {
+        const lasers: Special[] = [
+          this.rng.next() < 0.5 ? Special.RowLaser : Special.ColLaser,
+          this.rng.next() < 0.5 ? Special.RowLaser : Special.ColLaser,
+          Special.Kernel,
+        ];
+        const steps = c.engine.promoteSpecials(lasers);
+        if (steps.length) this.emit('steps', { side, steps });
+        break;
+      }
+      case 'open_source': {
+        const cells: Pos[] = [];
+        for (let y = 6; y < 8; y++) for (let x = 0; x < 8; x++) cells.push({ x, y });
+        const r = c.engine.clearGivenCells(cells);
+        if (r.steps.length) this.emit('steps', { side, steps: r.steps });
+        this.applyOutcome(side, r);
+        break;
+      }
     }
     this.emit('energy', { side, energy: c.energy });
     this.emit('skill', { side, char: c.char });
@@ -199,8 +255,8 @@ export class BattleController {
     const oppSide = this.opp(side);
     const o = this.combatants[oppSide];
 
-    // 伤害
-    const dmg = computeDamage(s, me.char.passive.damageMul ?? 1);
+    // 伤害（角色被动 × 模式修饰符）
+    const dmg = computeDamage(s, (me.char.passive.damageMul ?? 1) * me.damageMod);
     if (dmg > 0 && !this.over) {
       o.hp = Math.max(0, o.hp - dmg);
       me.stats.damageDealt += dmg;
@@ -208,15 +264,31 @@ export class BattleController {
       if (oppSide === 'p2' && dmg >= BATTLE.bigHitAt) this.emit('taunt', { type: 'botHurt', combo: s.maxCombo });
     }
 
-    // 充能
-    const gain = energyGain(s, me.char.mainColor, me.char.passive.energyMul ?? 1);
+    // 充能（开源侠：净化脏数据额外回能）
+    let gain = energyGain(s, me.char.mainColor, me.char.passive.energyMul ?? 1);
+    if (me.char.passive.purifyEnergy && s.garbagePurged > 0) {
+      gain += s.garbagePurged * me.char.passive.purifyEnergy;
+    }
     if (gain > 0) {
       me.energy = Math.min(BATTLE.energyMax, me.energy + gain);
       this.emit('energy', { side, energy: me.energy });
     }
 
+    // 被动：认知污染（连击≥3 给对手随机变色）
+    if (me.char.passive.comboScramble && s.maxCombo >= 3 && !this.over) {
+      const steps = o.engine.scrambleColors(me.char.passive.comboScramble);
+      if (steps.length) this.emit('steps', { side: oppSide, steps });
+    }
+    // 被动：镜像分身（生成特殊块时概率追加激光）
+    if (me.char.passive.twinChance && s.specialsCreated.length > 0 && this.rng.next() < me.char.passive.twinChance) {
+      const laser = this.rng.next() < 0.5 ? Special.RowLaser : Special.ColLaser;
+      const steps = me.engine.promoteSpecials([laser]);
+      if (steps.length) this.emit('steps', { side, steps });
+    }
+
     me.stats.maxCombo = Math.max(me.stats.maxCombo, s.maxCombo);
     me.stats.garbagePurged += s.garbagePurged;
+    if (s.fusion) me.stats.fusions++;
     this.emit('combo', { side, combo: s.maxCombo, cleared: s.totalCleared, fusion: s.fusion });
     if (s.maxCombo >= 4 || s.fusion) {
       this.emit('taunt', { type: side === 'p1' ? 'playerBigCombo' : 'botBigCombo', combo: s.maxCombo });

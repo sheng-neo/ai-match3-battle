@@ -21,10 +21,14 @@ function runScript(seed: number, ops = 160): { events: string; snapshot: string 
     } else if (roll === 7) {
       all.push(...engine.applyGarbage(1 + driver.nextInt(3)));
     } else if (roll === 8) {
-      all.push(...engine.applyLocks(1, 3));
+      const sub = driver.nextInt(3);
+      if (sub === 0) all.push(...engine.applyLocks(1, 3));
+      else if (sub === 1) all.push(...engine.scrambleColors(1 + driver.nextInt(6)));
+      else all.push(...engine.promoteSpecials([1 + driver.nextInt(3)]));
     } else {
       const locked = engine.findLockedCells();
       if (locked.length) all.push(...engine.tapLocked(locked[0]).steps);
+      else all.push(...engine.clearGivenCells([{ x: driver.nextInt(8), y: 7 }]).steps);
     }
   }
   return { events: JSON.stringify(all), snapshot: engine.snapshot() };

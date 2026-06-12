@@ -65,8 +65,9 @@ describe('bot vs bot 对局模拟', () => {
     let totalElapsed = 0;
     let totalUlts = 0;
     let maxComboSeen = 0;
+    const C = CHARACTERS.length;
     for (let i = 0; i < N; i++) {
-      const r = simulate(1000 + i, diffById('normal'), diffById('normal'), i % 3, (i + 1) % 3);
+      const r = simulate(1000 + i, diffById('normal'), diffById('normal'), i % C, (i + 1) % C);
       expect(r.elapsed).toBeLessThanOrEqual(BATTLE.durationMs + 200);
       if (r.winner === 'p1') p1Wins++;
       if (r.byTimeout) timeouts++;
@@ -90,7 +91,7 @@ describe('bot vs bot 对局模拟', () => {
     const N = 30;
     let hardWins = 0;
     for (let i = 0; i < N; i++) {
-      const r = simulate(5000 + i, diffById('easy'), diffById('hard'), i % 3, (i + 1) % 3);
+      const r = simulate(5000 + i, diffById('easy'), diffById('hard'), i % CHARACTERS.length, (i + 1) % CHARACTERS.length);
       if (r.winner === 'p2') hardWins++;
     }
     console.log(`[sim] EASY vs HARD: HARD 胜率=${((hardWins / N) * 100).toFixed(0)}%`);
@@ -103,13 +104,30 @@ describe('bot vs bot 对局模拟', () => {
     expect(a).toEqual(b);
   });
 
-  it('技能全覆盖：三角色互打均能正常结算', () => {
-    for (let c1 = 0; c1 < 3; c1++) {
-      for (let c2 = 0; c2 < 3; c2++) {
-        const r = simulate(9000 + c1 * 3 + c2, diffById('hard'), diffById('hard'), c1, c2);
+  it('技能全覆盖：六角色互打均能正常结算', () => {
+    const C = CHARACTERS.length;
+    for (let c1 = 0; c1 < C; c1++) {
+      for (let c2 = 0; c2 < C; c2++) {
+        const r = simulate(9000 + c1 * C + c2, diffById('hard'), diffById('hard'), c1, c2);
         expect(['p1', 'p2', 'draw']).toContain(r.winner);
       }
     }
     expect(charById('omni').ult).toBe('overfit_storm');
+    expect(C).toBe(6);
+  });
+
+  it('模式修饰符：HP 倍率/开局干扰/起始 HP 生效', () => {
+    const ctrl = new BattleController({
+      p1: { char: CHARACTERS[0], seed: 1 },
+      p2: { char: CHARACTERS[1], seed: 2 },
+      rngSeed: 3,
+      mods: { p2HpMul: 1.5, p1StartHp: 60, startGarbageP1: 4, startLocksP1: 1, durationMs: 90_000 },
+    });
+    expect(ctrl.state('p2').maxHp).toBe(150);
+    expect(ctrl.state('p2').hp).toBe(150);
+    expect(ctrl.state('p1').hp).toBe(60);
+    expect(ctrl.state('p1').engine.countGarbage()).toBe(4);
+    expect(ctrl.state('p1').engine.findLockedCells()).toHaveLength(1);
+    expect(ctrl.duration).toBe(90_000);
   });
 });

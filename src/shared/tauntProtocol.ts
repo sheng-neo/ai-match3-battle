@@ -1,6 +1,6 @@
 /** 前后端共享的 /api/taunt 协议类型（仅类型，零运行时依赖） */
 
-export type PersonaId = 'omni' | 'cheap' | 'scholar';
+export type PersonaId = 'omni' | 'cheap' | 'scholar' | 'hallucin' | 'twin' | 'alpaca';
 
 export type TauntEventType =
   | 'opening' // 开局
@@ -51,4 +51,4 @@ export const TAUNT_EVENT_TYPES: TauntEventType[] = [
   'result',
 ];
 
-export const PERSONA_IDS: PersonaId[] = ['omni', 'cheap', 'scholar'];
+export const PERSONA_IDS: PersonaId[] = ['omni', 'cheap', 'scholar', 'hallucin', 'twin', 'alpaca'];

@@ -322,6 +322,89 @@ export function resolveSwap(ctx: Ctx, a: Pos, b: Pos): SwapResult {
   return { summary, steps };
 }
 
+/** 技能用：清除指定格子（可命中特殊块并触发连锁），用于"引爆底部两行"类大招 */
+export function clearGivenCells(ctx: Ctx, cells: Pos[]): SwapResult {
+  const steps: StepEvent[] = [];
+  const summary = newSummary();
+  const seed = cells.filter((p) => {
+    const piece = ctx.grid[p.y]?.[p.x];
+    return !!piece && piece.lockHits === 0;
+  });
+  if (!seed.length) {
+    summary.valid = false;
+    return { summary, steps };
+  }
+  clearWave(ctx, seed, 1, steps, summary, {});
+  collapse(ctx.grid, ctx.rng, ctx.nextId, steps);
+  cascade(ctx, 2, steps, summary);
+  stabilize(ctx, steps, summary);
+  return { summary, steps };
+}
+
+/** 干扰/技能：随机改写 n 个普通棋子的颜色（保证变色），可能引发级联由 stabilize 收尾 */
+export function scrambleColors(ctx: Ctx, count: number): StepEvent[] {
+  const steps: StepEvent[] = [];
+  const eligible: Pos[] = [];
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const p = ctx.grid[y][x];
+      if (p && p.kind === PieceKind.Normal && p.lockHits === 0 && p.special === Special.None && p.color !== null) {
+        eligible.push({ x, y });
+      }
+    }
+  }
+  const n = Math.min(count, eligible.length);
+  if (!n) return steps;
+  const cells: { at: Pos; pieceId: number; color: Color }[] = [];
+  for (let i = 0; i < n; i++) {
+    const j = i + ctx.rng.nextInt(eligible.length - i);
+    const tmp = eligible[i];
+    eligible[i] = eligible[j];
+    eligible[j] = tmp;
+    const at = eligible[i];
+    const piece = ctx.grid[at.y][at.x]!;
+    const old = piece.color as number;
+    const next = ((old + 1 + ctx.rng.nextInt(5)) % 6) as Color;
+    piece.color = next;
+    cells.push({ at, pieceId: piece.id, color: next });
+  }
+  steps.push({ t: 'recolor', cells });
+  const summary = newSummary();
+  stabilize(ctx, steps, summary);
+  return steps;
+}
+
+/** 技能：把随机普通棋子原地升格为特殊块（颜色不变，不会引发匹配） */
+export function promoteSpecials(ctx: Ctx, specs: Special[]): StepEvent[] {
+  const steps: StepEvent[] = [];
+  const eligible: Pos[] = [];
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const p = ctx.grid[y][x];
+      if (p && p.kind === PieceKind.Normal && p.lockHits === 0 && p.special === Special.None && p.color !== null) {
+        eligible.push({ x, y });
+      }
+    }
+  }
+  const n = Math.min(specs.length, eligible.length);
+  if (!n) return steps;
+  const cells: { at: Pos; pieceId: number; special: Special }[] = [];
+  for (let i = 0; i < n; i++) {
+    const j = i + ctx.rng.nextInt(eligible.length - i);
+    const tmp = eligible[i];
+    eligible[i] = eligible[j];
+    eligible[j] = tmp;
+    const at = eligible[i];
+    const piece = ctx.grid[at.y][at.x]!;
+    // 奇点为无色棋子，升格仅支持激光/卷积核，避免色彩语义冲突
+    const spec = specs[i] === Special.Singularity ? Special.Kernel : specs[i];
+    piece.special = spec;
+    cells.push({ at, pieceId: piece.id, special: spec });
+  }
+  steps.push({ t: 'promote', cells });
+  return steps;
+}
+
 /** 技能用：随机清除 n 个未锁棋子（可命中特殊块并触发连锁） */
 export function clearRandomCells(ctx: Ctx, n: number): SwapResult {
   const steps: StepEvent[] = [];

@@ -97,6 +97,10 @@ export const sfx = {
     noise(0.4, 0.09, 0.05);
   },
   shuffle: (): void => tone(520, 0.2, { type: 'triangle', vol: 0.07, slideTo: 260 }),
+  glitch: (): void => {
+    tone(840, 0.05, { type: 'square', vol: 0.07, slideTo: 620 });
+    tone(430, 0.06, { type: 'square', vol: 0.07, delay: 0.06, slideTo: 980 });
+  },
   win: (): void => [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.24, { vol: 0.11, delay: i * 0.14 })),
   lose: (): void => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.32, { type: 'triangle', vol: 0.09, delay: i * 0.18 })),
 };

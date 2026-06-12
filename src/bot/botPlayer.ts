@@ -18,9 +18,11 @@ export class BotPlayer {
     private side: Side,
     private diff: DifficultyDef,
     seed: number,
+    /** 模式修饰：<1 加速（爬塔深层/无尽后期），>1 减速 */
+    private intervalMul = 1,
   ) {
     this.rng = mulberry32(seed);
-    this.timer = rollInterval(diff, this.rng);
+    this.timer = rollInterval(diff, this.rng) * this.intervalMul;
   }
 
   update(dtMs: number): void {
@@ -28,7 +30,7 @@ export class BotPlayer {
     this.timer -= dtMs;
     if (this.timer > 0) return;
     this.act();
-    this.timer = rollInterval(this.diff, this.rng);
+    this.timer = rollInterval(this.diff, this.rng) * this.intervalMul;
   }
 
   private act(): void {

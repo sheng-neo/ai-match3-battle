@@ -3,14 +3,17 @@ import { findLegalSwaps, hasLegalMove, reshuffleMoves } from './deadlock';
 import {
   applyGarbage,
   applyLocks,
+  clearGivenCells,
   clearRandomCells,
+  promoteSpecials,
   resolveSwap,
+  scrambleColors,
   tapLocked,
   type Ctx,
 } from './resolver';
 import { buildGroups } from './matcher';
 import { mulberry32, type RNG } from './rng';
-import { Piece, PieceKind, Pos, SIZE, StepEvent, SwapResult } from './types';
+import { Piece, PieceKind, Pos, SIZE, Special, StepEvent, SwapResult } from './types';
 
 export interface EngineConfig {
   seed: number;
@@ -72,6 +75,18 @@ export class MatchEngine {
 
   clearRandomCells(n: number): SwapResult {
     return clearRandomCells(this.ctx(), n);
+  }
+
+  clearGivenCells(cells: Pos[]): SwapResult {
+    return clearGivenCells(this.ctx(), cells);
+  }
+
+  scrambleColors(count: number): StepEvent[] {
+    return scrambleColors(this.ctx(), count);
+  }
+
+  promoteSpecials(specs: Special[]): StepEvent[] {
+    return promoteSpecials(this.ctx(), specs);
   }
 
   findLegalSwaps(): { a: Pos; b: Pos }[] {

@@ -15,6 +15,7 @@ import {
   UI_FONT,
 } from '../../config';
 import type { PersonaId, TauntState } from '../../shared/tauntProtocol';
+import { modeLabel, type BattleSetup } from '../flow';
 import { TauntDirector } from '../../taunt/tauntDirector';
 import { sfx } from '../audio/sfx';
 import { BoardInput } from '../input/BoardInput';
@@ -34,8 +35,10 @@ export interface ResultPayload {
   myStats: SideStats;
   oppStats: SideStats;
   myHp: number;
+  myMaxHp: number;
   oppHp: number;
   elapsedSec: number;
+  setup: BattleSetup;
 }
 
 export class BattleScene extends Phaser.Scene {
@@ -60,6 +63,7 @@ export class BattleScene extends Phaser.Scene {
   private lastCombo = 0;
   private ending = false;
   private toastText?: Phaser.GameObjects.Text;
+  private setup!: BattleSetup;
 
   constructor() {
     super('Battle');
@@ -70,20 +74,28 @@ export class BattleScene extends Phaser.Scene {
     this.lastCombo = 0;
     this.ultReady = false;
 
-    const myCharId = (this.registry.get('myChar') as PersonaId) ?? 'omni';
-    const oppCharId = (this.registry.get('oppChar') as PersonaId) ?? 'scholar';
-    const difficultyId = (this.registry.get('difficulty') as string) ?? 'normal';
+    const setup: BattleSetup = (this.registry.get('setup') as BattleSetup | undefined) ?? {
+      modeType: 'quick',
+      myCharId: 'omni',
+      oppCharId: 'scholar',
+      difficultyId: 'normal',
+      intervalMul: 1,
+      mods: {},
+    };
+    this.setup = setup;
+    const difficultyId = setup.difficultyId;
     const diff = DIFFICULTIES.find((d) => d.id === difficultyId) ?? DIFFICULTIES[1];
-    this.myChar = charById(myCharId);
-    this.oppChar = charById(oppCharId);
+    this.myChar = charById(setup.myCharId);
+    this.oppChar = charById(setup.oppCharId);
 
-    const seed = Math.floor(Math.random() * 2 ** 31);
+    const seed = setup.seed ?? Math.floor(Math.random() * 2 ** 31);
     this.ctrl = new BattleController({
       p1: { char: this.myChar, seed: seed + 1 },
       p2: { char: this.oppChar, seed: seed + 2 },
       rngSeed: seed + 3,
+      mods: setup.mods,
     });
-    this.bot = new BotPlayer(this.ctrl, 'p2', diff, seed + 4);
+    this.bot = new BotPlayer(this.ctrl, 'p2', diff, seed + 4, setup.intervalMul);
 
     // ---------- 顶部对手区 ----------
     this.add.image(70, 105, `avatar-${this.oppChar.id}`).setDisplaySize(108, 108);
@@ -93,7 +105,7 @@ export class BattleScene extends Phaser.Scene {
     this.add
       .text(140, 98, `${diff.label} · ${this.oppChar.title}`, { fontFamily: UI_FONT, fontSize: '20px', color: '#a7a9be' })
       .setOrigin(0, 0.5);
-    this.oppHpBar = new HpBar(this, 140, 136, 330, 30, 0xe53170);
+    this.oppHpBar = new HpBar(this, 140, 136, 330, 30, 0xe53170, this.ctrl.state('p2').maxHp);
     const oppEnergyBg = this.add.rectangle(140, 162, 330, 10, 0x000000, 0.5).setOrigin(0, 0.5);
     oppEnergyBg.setStrokeStyle(1, 0x2e2e3e, 1);
     this.oppEnergyFill = this.add.rectangle(141, 162, 0.001, 6, 0x7f5af0, 1).setOrigin(0, 0.5);
@@ -110,7 +122,12 @@ export class BattleScene extends Phaser.Scene {
     this.add
       .text(BOARD_X, 268, `${this.myChar.emoji} 我方`, { fontFamily: UI_FONT, fontSize: '24px', color: '#a7a9be' })
       .setOrigin(0, 0.5);
-    this.myHpBar = new HpBar(this, BOARD_X + 110, 268, 380, 34, 0x2cb67d);
+    this.myHpBar = new HpBar(this, BOARD_X + 110, 268, 380, 34, 0x2cb67d, this.ctrl.state('p1').maxHp);
+    if (this.ctrl.state('p1').hp < this.ctrl.state('p1').maxHp) this.myHpBar.set(this.ctrl.state('p1').hp);
+    // 模式标签（爬塔层数/无尽波次/每日）
+    this.add
+      .text(GAME_W / 2, 302, modeLabel(this.setup), { fontFamily: UI_FONT, fontSize: '19px', color: '#5e5c70' })
+      .setOrigin(0.5);
     this.timerText = this.add
       .text(GAME_W - BOARD_X, 268, '150', {
         fontFamily: UI_FONT,
@@ -285,12 +302,18 @@ export class BattleScene extends Phaser.Scene {
       myStats: { ...this.ctrl.state('p1').stats },
       oppStats: { ...this.ctrl.state('p2').stats },
       myHp: this.ctrl.state('p1').hp,
+      myMaxHp: this.ctrl.state('p1').maxHp,
       oppHp: this.ctrl.state('p2').hp,
       elapsedSec: Math.round(this.ctrl.elapsed / 1000),
+      setup: this.setup,
     };
-    // 等两侧动画排空再切结算，避免演出截断
-    void Promise.all([this.mainPlayer.waitIdle(), this.miniPlayer.waitIdle()]).then(() => {
-      this.time.delayedCall(450, () => this.scene.start('Result', payload));
+    // 等两侧动画排空再切结算（6s 兜底超时：任何演出停滞都不允许软锁结算）
+    const idle = Promise.all([this.mainPlayer.waitIdle(), this.miniPlayer.waitIdle()]);
+    const timeout = new Promise<void>((res) => this.time.delayedCall(6000, res));
+    void Promise.race([idle, timeout]).then(() => {
+      this.time.delayedCall(450, () => {
+        if (this.scene.isActive()) this.scene.start('Result', payload);
+      });
     });
   }
 
