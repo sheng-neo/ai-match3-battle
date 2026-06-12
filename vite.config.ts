@@ -40,6 +40,7 @@ export default defineConfig(({ mode }) => {
   if (env.TAUNT_MODEL) process.env.TAUNT_MODEL = env.TAUNT_MODEL;
 
   return {
+    base: './', // 相对路径：兼容 GitHub Pages 子路径与任意托管
     plugins: [tauntDevApi()],
     server: { host: true, port: Number(process.env.PORT) || 5173 },
     build: { chunkSizeWarningLimit: 1800 },
