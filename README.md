@@ -1,0 +1,66 @@
+# AI 大乱斗 · 消消乐 ⚔️🧠
+
+网页版 AI 主题对战消消乐：与「大模型人格」实时对战，消除即攻击，
+对手会通过 Claude API **实时生成嘴炮锐评**（无 key 时自动降级本地台词库，照样能玩）。
+
+## 玩法
+
+- **8×8 三消**：消除 AI 资源（📊数据 ⚡算力 🧠参数 🔋能量 💾显存 🔮Token），滑动或点选两下交换
+- **特殊块**：4 连 → 张量射线（清行/列）；L/T → 卷积核（3×3 爆破）；5 连 → 奇点（同色全消）；特殊块互换有 fusion 组合技
+- **消除即攻击**：双方 100 HP，combo 越高伤害越高，大连击还会把干扰打到对面棋盘——
+  💩 脏数据（不可交换，需相邻消除净化）、🔒 验证码锁（连点 3 次解锁）、🐌 限流（操作冷却）
+- **角色技能**：三个戏仿大模型角色（GPT-omni 全知者 / DeepCheap-R1 卷王 / Claudius 谨慎学者），各有被动 + 大招
+- **AI 对手**：三档难度 = 7B 小模型 / 72B 指令微调 / 万亿参数 MoE
+- **结算战报卡**：一键生成可分享 PNG，附对手赛后锐评
+
+## 运行
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+```
+
+### 接入 Claude 实时嘴炮（可选但强烈推荐）
+
+```bash
+cp .env.example .env.local
+# 编辑 .env.local 填入 ANTHROPIC_API_KEY=sk-ant-...
+```
+
+重启 dev server 后，对手的嘴炮会由 `claude-haiku-4-5` 按实时战局即兴生成（气泡带 ✨AI 标记）。
+key 只存在于服务端（vite dev middleware / Vercel function），绝不会打进前端包。
+没有 key 或请求失败时无缝回退到内置台词库，游戏体验完整。
+
+可选环境变量：`TAUNT_MODEL`（默认 `claude-haiku-4-5`）。
+
+## 测试
+
+```bash
+npm test           # 47 个用例：引擎判型/级联/特殊块/确定性黄金快照 + 伤害公式 + bot 对局模拟
+```
+
+引擎与对战层为纯 TS、零 Phaser 依赖、注入式 seeded RNG —— 同种子同操作序列产生
+逐字节一致的事件流（`tests/engine/determinism.test.ts` 是防回归总闸）。
+
+## 部署（Vercel）
+
+```bash
+npm i -g vercel && vercel
+# 在 Vercel 项目设置中配置环境变量 ANTHROPIC_API_KEY
+```
+
+静态站 + `api/taunt.ts` serverless function 自动部署；服务端按 IP 限流（20 次/分钟）。
+
+## 架构
+
+```
+engine/   纯三消规则引擎（确定性、可单测、为联机 PvP 预留）
+battle/   对战编排：HP/伤害/干扰/技能/角色
+bot/      启发式 AI 对手（评估函数 + 难度参数）
+taunt/    嘴炮链路：事件 → 节流 → Claude API → 气泡（带降级）
+game/     Phaser 渲染层：引擎事件 → 补间动画回放（StepPlayer）
+api/      Claude 代理（dev middleware 与 Vercel function 共用核心）
+```
+
+逻辑瞬时、渲染回放：引擎同步算完一次操作的全部级联并返回事件序列，
+渲染层按序播放补间 —— 动画与规则完全解耦。

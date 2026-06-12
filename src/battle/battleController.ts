@@ -87,7 +87,8 @@ export class BattleController {
   }
 
   on<K extends keyof BattleEvents>(event: K, cb: Listener<K>): void {
-    (this.listeners[event] ??= []).push(cb);
+    const list = (this.listeners[event] ?? (this.listeners[event] = [])) as Listener<K>[];
+    list.push(cb);
   }
 
   private emit<K extends keyof BattleEvents>(event: K, payload: BattleEvents[K]): void {

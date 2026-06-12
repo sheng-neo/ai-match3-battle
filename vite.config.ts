@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [tauntDevApi()],
-    server: { host: true },
+    server: { host: true, port: Number(process.env.PORT) || 5173 },
     build: { chunkSizeWarningLimit: 1800 },
     test: {
       environment: 'node',
