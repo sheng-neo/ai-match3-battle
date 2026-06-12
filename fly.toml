@@ -1,0 +1,25 @@
+# Fly.io 部署配置（参照网页版红警）。部署：`fly deploy`
+# 嘴炮 key（统一走 OpenRouter）：`fly secrets set OPENROUTER_API_KEY=sk-or-v1-...`
+app = "ai-match3-battle"
+primary_region = "sin" # 新加坡
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1 # 保持常驻；想省钱可改 0（空闲自动停，冷启数秒）
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -36,8 +36,9 @@ function tauntDevApi(): Plugin {
 export default defineConfig(({ mode }) => {
   // 把 .env.local 的服务端变量注入 process.env（无 VITE_ 前缀的变量 Vite 不会打进前端）
   const env = loadEnv(mode, process.cwd(), '');
-  if (env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
-  if (env.TAUNT_MODEL) process.env.TAUNT_MODEL = env.TAUNT_MODEL;
+  for (const key of ['OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'TAUNT_MODEL', 'TAUNT_BASE_URL']) {
+    if (env[key]) process.env[key] = env[key];
+  }
 
   return {
     base: './', // 相对路径：兼容 GitHub Pages 子路径与任意托管

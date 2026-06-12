@@ -1,0 +1,11 @@
+node_modules
+dist
+server/tauntHandler.mjs
+.git
+.github
+.claude
+.env*
+tests
+README.md
+*.log
+.DS_Store
