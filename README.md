@@ -1,6 +1,7 @@
 # AI 大乱斗 · 消消乐 ⚔️🧠
 
-**🎮 在线玩：https://sheng-neo.github.io/ai-match3-battle/**
+**🎮 在线玩（主站，支持 ✨AI 即兴嘴炮）：https://ai-match3-battle.fly.dev/**
+静态镜像（GitHub Pages，嘴炮为内置台词）：https://sheng-neo.github.io/ai-match3-battle/
 
 网页版 AI 主题对战消消乐：与「大模型人格」实时对战，消除即攻击，
 对手会通过 Claude API **实时生成嘴炮锐评**（无 key 时自动降级本地台词库，照样能玩）。
