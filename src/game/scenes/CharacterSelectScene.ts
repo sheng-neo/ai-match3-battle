@@ -103,7 +103,7 @@ export class CharacterSelectScene extends Phaser.Scene {
         fontSize: '21px',
         fontStyle: 'bold',
         color: unlocked ? '#fffffe' : '#5e5c70',
-        wordWrap: { width: 200 },
+        wordWrap: { width: 200, useAdvancedWrap: true },
       })
       .setOrigin(0, 0.5);
     this.add
@@ -116,7 +116,7 @@ export class CharacterSelectScene extends Phaser.Scene {
           fontFamily: UI_FONT,
           fontSize: '17px',
           color: '#2cb67d',
-          wordWrap: { width: 304 },
+          wordWrap: { width: 304, useAdvancedWrap: true },
           lineSpacing: 4,
         })
         .setOrigin(0, 0);
@@ -125,7 +125,7 @@ export class CharacterSelectScene extends Phaser.Scene {
           fontFamily: UI_FONT,
           fontSize: '17px',
           color: '#ffd803',
-          wordWrap: { width: 304 },
+          wordWrap: { width: 304, useAdvancedWrap: true },
           lineSpacing: 4,
         })
         .setOrigin(0, 0);

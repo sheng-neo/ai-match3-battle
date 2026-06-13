@@ -109,7 +109,8 @@ export class ResultScene extends Phaser.Scene {
         fontSize: '26px',
         color: '#fffffe',
         align: 'center',
-        wordWrap: { width: 580 },
+        // useAdvancedWrap：中文按字符断行，杜绝整句横向溢出
+        wordWrap: { width: 580, useAdvancedWrap: true },
         lineSpacing: 7,
       })
       .setOrigin(0.5);

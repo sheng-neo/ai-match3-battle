@@ -26,7 +26,8 @@ export class TauntBubble {
       fontFamily: UI_FONT,
       fontSize: '26px',
       color: '#0f0e17',
-      wordWrap: { width: width - 32 },
+      // useAdvancedWrap：中文无空格必须按字符断行，否则整句溢出
+      wordWrap: { width: width - 32, useAdvancedWrap: true },
       lineSpacing: 6,
     });
     this.badge = scene.add

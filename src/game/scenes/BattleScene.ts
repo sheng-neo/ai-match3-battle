@@ -136,8 +136,8 @@ export class BattleScene extends Phaser.Scene {
     this.miniPlayer = new StepPlayer(this, this.miniView, { speed: MINI_SPEED, effects: false });
     this.miniView.init(this.ctrl.state('p2').engine.getGrid());
 
-    // 嘴炮气泡
-    this.bubble = new TauntBubble(this, 36, 196, 430);
+    // 嘴炮气泡（锚到对手名一侧，长文向下展开也不压住我方血条）
+    this.bubble = new TauntBubble(this, 36, 126, 430);
 
     // ---------- 我方信息行 ----------
     this.add
@@ -276,7 +276,7 @@ export class BattleScene extends Phaser.Scene {
     this.ctrl.on('damage', ({ side, amount, hp }) => {
       if (side === 'p1') {
         this.myHpBar.set(hp);
-        this.floatText(BOARD_X + CELL * 4, BOARD_Y - 24, `-${amount}`, '#e53170', 34);
+        this.floatText(BOARD_X + 330, 240, `-${amount}`, '#e53170', 34);
         sfx.hurt();
         // 重击才出红晕，且 1.2s 节流 —— 避免磨血时高频闪屏
         if (amount >= 6 && this.time.now - this.lastVignetteAt > 1200) {
@@ -339,7 +339,7 @@ export class BattleScene extends Phaser.Scene {
     });
 
     this.ctrl.on('passiveProc', ({ side, text }) => {
-      if (side === 'p1') this.floatText(GAME_W / 2, BOARD_Y + 36, text, '#2cb67d', 24);
+      if (side === 'p1') this.floatText(GAME_W / 2, BOARD_Y + 240, text, '#2cb67d', 24);
       else this.toast(text);
     });
 
@@ -362,12 +362,11 @@ export class BattleScene extends Phaser.Scene {
         return;
       }
       if (to === 'p1') {
-        this.attackProjectile();
         const parts: string[] = [];
-        if (plan.garbage) parts.push(`💩脏数据×${plan.garbage}`);
-        if (plan.locks) parts.push('🔒验证码锁');
+        if (plan.garbage) parts.push(`💩×${plan.garbage}`);
+        if (plan.locks) parts.push('🔒验证码');
         if (plan.ratelimit) parts.push('🐌限流');
-        this.toast(`⚠️ 受到干扰：${parts.join(' ')}`);
+        this.attackProjectile(parts.join(' '));
       }
     });
 
@@ -600,13 +599,14 @@ export class BattleScene extends Phaser.Scene {
 
   // ---------- 对手高光演出 ----------
   private oppComboWarn(combo: number): void {
-    this.floatText(GAME_W / 2, 212, `⚠️ 对手连击 ×${combo}`, '#e53170', 36);
+    // 放棋盘上部中央，不与顶部 HUD/气泡同区
+    this.floatText(GAME_W / 2, BOARD_Y + 150, `⚠️ 对手连击 ×${combo}`, '#e53170', 36);
     sfx.glitch();
     this.tweens.add({ targets: this.oppAvatar, scale: { from: 1, to: 1.22 }, yoyo: true, repeat: 1, duration: 130 });
   }
 
-  /** 攻击可视化：红色光弹从对手头像飞向你的棋盘 */
-  private attackProjectile(): void {
+  /** 攻击可视化：红色光弹从对手头像飞向你的棋盘，命中点浮出干扰内容 */
+  private attackProjectile(label: string): void {
     const tx = GAME_W / 2;
     const ty = BOARD_Y + CELL * 4;
     const orb = this.add.circle(70, 105, 13, 0xe53170, 0.95).setDepth(58).setBlendMode(Phaser.BlendModes.ADD);
@@ -623,6 +623,7 @@ export class BattleScene extends Phaser.Scene {
         this.cameras.main.shake(110, 0.004);
         const boom = this.add.circle(tx, ty, 18, 0xe53170, 0.7).setDepth(58).setBlendMode(Phaser.BlendModes.ADD);
         this.tweens.add({ targets: boom, scale: 4.5, alpha: 0, duration: 300, onComplete: () => boom.destroy() });
+        if (label) this.floatText(tx, ty - 20, `⚠️ ${label}`, '#e53170', 30);
       },
     });
   }
@@ -630,14 +631,15 @@ export class BattleScene extends Phaser.Scene {
   // ---------- 小部件 ----------
   private toast(msg: string, holdMs = 2300): void {
     this.toastText?.destroy();
+    // 放在棋盘内上沿：不与血条/模式标签/气泡同区
     const t = this.add
-      .text(GAME_W / 2, BOARD_Y - 70, msg, {
+      .text(GAME_W / 2, BOARD_Y + 36, msg, {
         fontFamily: UI_FONT,
         fontSize: '26px',
         color: '#fffffe',
-        backgroundColor: 'rgba(15,14,23,0.9)',
+        backgroundColor: 'rgba(15,14,23,0.92)',
         padding: { x: 14, y: 8 },
-        wordWrap: { width: 660 },
+        wordWrap: { width: 640, useAdvancedWrap: true },
         align: 'center',
       })
       .setOrigin(0.5)
@@ -702,7 +704,7 @@ export class BattleScene extends Phaser.Scene {
             fontFamily: UI_FONT,
             fontSize: '24px',
             color: '#fffffe',
-            wordWrap: { width: 640 },
+            wordWrap: { width: 640, useAdvancedWrap: true },
             align: 'center',
           })
           .setOrigin(0.5)
