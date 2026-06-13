@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLOR_EMOJI, COLOR_HEX } from '../../config';
+import { COLOR_HEX } from '../../config';
 import { CHARACTERS } from '../../battle/characters';
 
 export const TILE_SIZE = 128;
@@ -92,6 +92,186 @@ function drawGlossyBase(ctx: CanvasRenderingContext2D, S: number, hex: number, o
   ctx.fill();
 }
 
+/**
+ * 手绘高辨识 AI 图标（设计基于 128px，按 u 缩放）：
+ * 0 数据=数据库圆柱 1 算力=芯片闪电 2 参数=神经网络 3 能量=电池 4 显存=内存条 5 Token=代币
+ */
+function drawAiIcon(ctx: CanvasRenderingContext2D, color: number, S: number): void {
+  const u = S / 128;
+  const cx = 64 * u;
+  const white = 'rgba(255,255,255,0.96)';
+  const dark = shade(COLOR_HEX[color], -0.55);
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 6 * u;
+  ctx.shadowOffsetY = 3 * u;
+
+  switch (color) {
+    case 0: {
+      // 数据库圆柱
+      const rx = 26 * u;
+      const ry = 10 * u;
+      const top = 44 * u;
+      const bot = 88 * u;
+      ctx.fillStyle = white;
+      ctx.beginPath();
+      ctx.ellipse(cx, top, rx, ry, 0, Math.PI, Math.PI * 2);
+      ctx.lineTo(cx + rx, bot);
+      ctx.ellipse(cx, bot, rx, ry, 0, 0, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx, top, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 3.5 * u;
+      ctx.beginPath();
+      ctx.ellipse(cx, top, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      for (const yy of [59, 74]) {
+        ctx.beginPath();
+        ctx.ellipse(cx, yy * u, rx, ry, 0, 0.18, Math.PI - 0.18);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 1: {
+      // 芯片 + 闪电
+      const x = 42 * u;
+      const y = 42 * u;
+      const w = 44 * u;
+      ctx.fillStyle = white;
+      // 引脚（四边各 3 根）
+      for (let i = 0; i < 3; i++) {
+        const off = x + w * (0.22 + i * 0.28) - 3 * u;
+        ctx.fillRect(off, y - 8 * u, 6 * u, 8 * u);
+        ctx.fillRect(off, y + w, 6 * u, 8 * u);
+        ctx.fillRect(x - 8 * u, off, 8 * u, 6 * u);
+        ctx.fillRect(x + w, off, 8 * u, 6 * u);
+      }
+      roundRect(ctx, x, y, w, w, 8 * u);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = dark;
+      roundRect(ctx, x + 8 * u, y + 8 * u, w - 16 * u, w - 16 * u, 5 * u);
+      ctx.fill();
+      ctx.fillStyle = white;
+      ctx.beginPath();
+      ctx.moveTo(69 * u, 48 * u);
+      ctx.lineTo(56 * u, 67 * u);
+      ctx.lineTo(63 * u, 67 * u);
+      ctx.lineTo(59 * u, 80 * u);
+      ctx.lineTo(73 * u, 61 * u);
+      ctx.lineTo(65 * u, 61 * u);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case 2: {
+      // 神经网络（2-3-2 节点连线）
+      const L: [number, number][] = [
+        [42, 52],
+        [42, 80],
+      ];
+      const M: [number, number][] = [
+        [64, 42],
+        [64, 66],
+        [64, 90],
+      ];
+      const R: [number, number][] = [
+        [86, 52],
+        [86, 80],
+      ];
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 3 * u;
+      ctx.shadowColor = 'transparent';
+      ctx.beginPath();
+      for (const [lx, ly] of L)
+        for (const [mx, my] of M) {
+          ctx.moveTo(lx * u, ly * u);
+          ctx.lineTo(mx * u, my * u);
+        }
+      for (const [mx, my] of M)
+        for (const [rx2, ry2] of R) {
+          ctx.moveTo(mx * u, my * u);
+          ctx.lineTo(rx2 * u, ry2 * u);
+        }
+      ctx.stroke();
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.fillStyle = white;
+      for (const [px, py] of [...L, ...M, ...R]) {
+        ctx.beginPath();
+        ctx.arc(px * u, py * u, (px === 64 ? 7.5 : 6.5) * u, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 3: {
+      // 电池（满电三格）
+      ctx.strokeStyle = white;
+      ctx.lineWidth = 5 * u;
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      roundRect(ctx, 36 * u, 50 * u, 46 * u, 32 * u, 6 * u);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = white;
+      roundRect(ctx, 84 * u, 58 * u, 9 * u, 16 * u, 3 * u);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      for (let i = 0; i < 3; i++) {
+        roundRect(ctx, (43 + i * 12.5) * u, 56 * u, 9 * u, 20 * u, 2.5 * u);
+        ctx.fill();
+      }
+      break;
+    }
+    case 4: {
+      // 内存条（芯片 + 金手指）
+      ctx.fillStyle = white;
+      roundRect(ctx, 46 * u, 38 * u, 36 * u, 46 * u, 4 * u);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = dark;
+      for (const [dx, dy] of [
+        [52, 45],
+        [67, 45],
+        [52, 62],
+        [67, 62],
+      ]) {
+        roundRect(ctx, dx * u, dy * u, 10 * u, 12 * u, 2 * u);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ffd803';
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect((48 + i * 5.5) * u, 85 * u, 4 * u, 8 * u);
+      }
+      break;
+    }
+    case 5: {
+      // Token 代币
+      ctx.fillStyle = white;
+      ctx.beginPath();
+      ctx.arc(cx, 66 * u, 27 * u, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 2.5 * u;
+      ctx.beginPath();
+      ctx.arc(cx, 66 * u, 21 * u, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = dark;
+      ctx.font = `bold ${34 * u}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('T', cx, 67 * u);
+      break;
+    }
+  }
+  ctx.restore();
+}
+
 function makeCanvas(scene: Phaser.Scene, key: string, size: number): CanvasRenderingContext2D | null {
   if (scene.textures.exists(key)) return null;
   const tex = scene.textures.createCanvas(key, size, size);
@@ -109,13 +289,13 @@ export function bakeAllTextures(scene: Phaser.Scene): void {
   const C = S / 2;
   const emojiY = C + Math.round(S * 0.04);
 
-  // 六色棋子（立体糖果）
+  // 六色棋子（立体糖果 + 手绘高辨识 AI 图标，不再依赖 emoji）
   for (let color = 0; color < 6; color++) {
     const key = `tile-${color}`;
     const ctx = makeCanvas(scene, key, S);
     if (!ctx) continue;
     drawGlossyBase(ctx, S, COLOR_HEX[color]);
-    drawEmojiOrLetter(ctx, COLOR_EMOJI[color], 'DCPEVT'[color], '#ffffff', C, emojiY, Math.round(S * 0.52));
+    drawAiIcon(ctx, color, S);
     refresh(scene, key);
   }
 

@@ -16,13 +16,23 @@ export const COLOR_HEX: Record<number, number> = {
   4: 0x7f5af0, // 显存 💾 紫
   5: 0xff8906, // Token 🔮 橙
 };
+/** 文本场景用的资源 emoji（与砖块手绘图标语义对齐：数据库/芯片/网络/电池/内存/代币） */
 export const COLOR_EMOJI: Record<number, string> = {
-  0: '📊',
+  0: '🛢️',
   1: '⚡',
   2: '🧠',
   3: '🔋',
   4: '💾',
-  5: '🔮',
+  5: '🪙',
+};
+/** 资源中文名（图鉴/提示用） */
+export const COLOR_NAME: Record<number, string> = {
+  0: '数据',
+  1: '算力',
+  2: '参数',
+  3: '能量',
+  4: '显存',
+  5: 'Token',
 };
 export const BG_COLOR = 0x0f0e17;
 export const UI_FONT = "'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif";
@@ -73,6 +83,11 @@ export const BATTLE = {
   // 嘴炮触发阈值
   bigHitAt: 18,
   lowHpAt: 30,
+  // 道具（每局各 1 次）
+  itemHealAmount: 30,
+  itemUnplugMs: 6000,
+  // 闲置提示
+  hintIdleMs: 5000,
 };
 
 // ---------- Bot 难度 ----------

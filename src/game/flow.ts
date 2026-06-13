@@ -19,6 +19,8 @@ export interface BattleSetup {
   wave?: number;
   dailyKey?: string;
   rules?: string[];
+  /** 本局已使用过复活（每局限一次） */
+  revived?: boolean;
 }
 
 /** CharacterSelect 的来路（registry key: 'flow'） */

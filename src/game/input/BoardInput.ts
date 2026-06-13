@@ -8,6 +8,8 @@ export interface BoardInputOpts {
   isLocked: (p: Pos) => boolean;
   /** false 时忽略手势（动画中 / 对局结束） */
   canAct: () => boolean;
+  /** 优先拦截：返回 true 表示已消费本次点击（道具瞄准模式用） */
+  onAnyTap?: (p: Pos) => boolean;
 }
 
 /**
@@ -72,6 +74,10 @@ export class BoardInput {
     this.consumed = true;
     if (!this.opts.canAct()) return;
     const from = this.downCell;
+    if (this.opts.onAnyTap?.(from)) {
+      this.clearSelection();
+      return;
+    }
     if (this.opts.isLocked(from)) {
       this.opts.onLockTap(from);
       this.clearSelection();
@@ -95,6 +101,10 @@ export class BoardInput {
     if (!cell || cell.x !== down.x || cell.y !== down.y) return; // 拖出后松手不算点选
     if (!this.opts.canAct()) return;
 
+    if (this.opts.onAnyTap?.(cell)) {
+      this.clearSelection();
+      return;
+    }
     if (this.opts.isLocked(cell)) {
       this.opts.onLockTap(cell);
       this.clearSelection();

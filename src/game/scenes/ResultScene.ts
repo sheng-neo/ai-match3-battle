@@ -246,6 +246,20 @@ export class ResultScene extends Phaser.Scene {
     const Y2 = 1118;
     const Y3 = 1216;
 
+    // 💊 复活再战：失败且本局未复活过（每日挑战除外，保持公平），对手保留剩余血量
+    const canRevive = data.outcome === 'lose' && !setup.revived && setup.modeType !== 'daily' && data.oppHp > 0;
+    const reviveBtn = (y: number): void => {
+      mkBtn(GAME_W / 2, y, 460, `💊 复活再战（对手仅剩 ${data.oppHp} HP）`, 0xb8860b, () => {
+        const revivedSetup: BattleSetup = {
+          ...setup,
+          revived: true,
+          mods: { ...setup.mods, p2StartHp: data.oppHp },
+        };
+        this.registry.set('setup', revivedSetup);
+        this.scene.start('Battle');
+      });
+    };
+
     switch (setup.modeType) {
       case 'tower': {
         if (win) {
@@ -253,10 +267,15 @@ export class ResultScene extends Phaser.Scene {
           mkBtn(GAME_W / 2, Y1, 460, profile.towerBest >= TOWER_MAX ? '🗼 回到塔层' : `⬆️ 继续爬塔（第 ${next} 层）`, 0x7f5af0, () =>
             this.scene.start('Tower'),
           );
+          mkBtn(GAME_W / 2, Y2, 460, '🏠 主菜单', 0x1f1d33, toMenu);
+        } else if (canRevive) {
+          reviveBtn(Y1);
+          mkBtn(GAME_W / 2 - 120, Y2, 220, '🔁 重战本层', 0x7f5af0, () => this.scene.start('Tower'));
+          mkBtn(GAME_W / 2 + 130, Y2, 220, '🏠 主菜单', 0x1f1d33, toMenu);
         } else {
           mkBtn(GAME_W / 2, Y1, 460, '🔁 重整旗鼓，再战本层', 0x7f5af0, () => this.scene.start('Tower'));
+          mkBtn(GAME_W / 2, Y2, 460, '🏠 主菜单', 0x1f1d33, toMenu);
         }
-        mkBtn(GAME_W / 2, Y2, 460, '🏠 主菜单', 0x1f1d33, toMenu);
         break;
       }
       case 'endless': {
@@ -278,6 +297,13 @@ export class ResultScene extends Phaser.Scene {
             this.scene.start('Battle');
           });
           mkBtn(GAME_W / 2, Y2, 460, `💾 见好就收（纪录 ${profile.endlessBest} 波）`, 0x1f1d33, toMenu);
+        } else if (canRevive) {
+          reviveBtn(Y1);
+          mkBtn(GAME_W / 2 - 120, Y2, 220, '🔁 重新开始', 0x2cb67d, () => {
+            this.registry.set('flow', { type: 'endless' } satisfies FlowState);
+            this.scene.start('CharacterSelect');
+          });
+          mkBtn(GAME_W / 2 + 130, Y2, 220, '🏠 主菜单', 0x1f1d33, toMenu);
         } else {
           mkBtn(GAME_W / 2, Y1, 460, '🔁 重新挑战', 0x2cb67d, () => {
             this.registry.set('flow', { type: 'endless' } satisfies FlowState);
@@ -296,12 +322,21 @@ export class ResultScene extends Phaser.Scene {
         break;
       }
       default: {
-        mkBtn(GAME_W / 2 - 120, Y1, 220, '⚔️ 再来一局', 0x7f5af0, () => {
-          this.registry.set('flow', { type: 'quick' } satisfies FlowState);
-          this.scene.start('CharacterSelect');
-        });
-        mkBtn(GAME_W / 2 + 130, Y1, 220, '🏠 主菜单', 0x1f1d33, toMenu);
-        mkBtn(GAME_W / 2, Y2, 470, '🗼 去爬塔解锁新模型', 0x2cb67d, () => this.scene.start('Tower'));
+        if (canRevive) {
+          reviveBtn(Y1);
+          mkBtn(GAME_W / 2 - 120, Y2, 220, '⚔️ 再来一局', 0x7f5af0, () => {
+            this.registry.set('flow', { type: 'quick' } satisfies FlowState);
+            this.scene.start('CharacterSelect');
+          });
+          mkBtn(GAME_W / 2 + 130, Y2, 220, '🏠 主菜单', 0x1f1d33, toMenu);
+        } else {
+          mkBtn(GAME_W / 2 - 120, Y1, 220, '⚔️ 再来一局', 0x7f5af0, () => {
+            this.registry.set('flow', { type: 'quick' } satisfies FlowState);
+            this.scene.start('CharacterSelect');
+          });
+          mkBtn(GAME_W / 2 + 130, Y1, 220, '🏠 主菜单', 0x1f1d33, toMenu);
+          mkBtn(GAME_W / 2, Y2, 470, '🗼 去爬塔解锁新模型', 0x2cb67d, () => this.scene.start('Tower'));
+        }
       }
     }
 

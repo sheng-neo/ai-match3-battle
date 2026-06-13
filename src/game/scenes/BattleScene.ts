@@ -7,6 +7,7 @@ import {
   BOARD_X,
   BOARD_Y,
   CELL,
+  COLOR_NAME,
   DIFFICULTIES,
   GAME_H,
   GAME_W,
@@ -15,6 +16,8 @@ import {
   UI_FONT,
 } from '../../config';
 import type { PersonaId, TauntState } from '../../shared/tauntProtocol';
+import { BOT_STYLES } from '../../bot/botStyles';
+import { scoreMoves } from '../../bot/evaluator';
 import { modeLabel, type BattleSetup } from '../flow';
 import { TauntDirector } from '../../taunt/tauntDirector';
 import { sfx } from '../audio/sfx';
@@ -64,6 +67,18 @@ export class BattleScene extends Phaser.Scene {
   private ending = false;
   private toastText?: Phaser.GameObjects.Text;
   private setup!: BattleSetup;
+  // 道具 / 提示 / 演出状态
+  private items = { hammer: 1, patch: 1, unplug: 1 };
+  private itemSetUsed: Record<string, () => void> = {};
+  private aimMode = false;
+  private aimText?: Phaser.GameObjects.Text;
+  private botFrozenUntil = 0;
+  private freezeText?: Phaser.GameObjects.Text;
+  private lastActAt = 0;
+  private hintTweens: Phaser.Tweens.Tween[] = [];
+  private hintSprites: Phaser.GameObjects.Container[] = [];
+  private oppAvatar!: Phaser.GameObjects.Image;
+  private oppFullRing?: Phaser.GameObjects.Arc;
 
   constructor() {
     super('Battle');
@@ -98,12 +113,16 @@ export class BattleScene extends Phaser.Scene {
     this.bot = new BotPlayer(this.ctrl, 'p2', diff, seed + 4, setup.intervalMul);
 
     // ---------- 顶部对手区 ----------
-    this.add.image(70, 105, `avatar-${this.oppChar.id}`).setDisplaySize(108, 108);
+    this.oppAvatar = this.add.image(70, 105, `avatar-${this.oppChar.id}`).setDisplaySize(108, 108);
     this.add
       .text(140, 62, this.oppChar.name, { fontFamily: UI_FONT, fontSize: '30px', fontStyle: 'bold', color: '#fffffe' })
       .setOrigin(0, 0.5);
     this.add
-      .text(140, 98, `${diff.label} · ${this.oppChar.title}`, { fontFamily: UI_FONT, fontSize: '20px', color: '#a7a9be' })
+      .text(140, 98, `${diff.label} · 被动「${this.oppChar.passiveName}」`, {
+        fontFamily: UI_FONT,
+        fontSize: '20px',
+        color: '#a7a9be',
+      })
       .setOrigin(0, 0.5);
     this.oppHpBar = new HpBar(this, 140, 136, 330, 30, 0xe53170, this.ctrl.state('p2').maxHp);
     const oppEnergyBg = this.add.rectangle(140, 162, 330, 10, 0x000000, 0.5).setOrigin(0, 0.5);
@@ -150,12 +169,25 @@ export class BattleScene extends Phaser.Scene {
     this.mainView.init(this.ctrl.state('p1').engine.getGrid());
 
     this.input2 = new BoardInput(this, this.mainView, {
-      canAct: () => !this.ctrl.over && !this.mainPlayer.busy,
+      canAct: () => !this.ctrl.over && (this.aimMode || !this.mainPlayer.busy),
       isLocked: (p) => (this.ctrl.state('p1').engine.pieceAt(p)?.lockHits ?? 0) > 0,
+      onAnyTap: (p) => {
+        if (!this.aimMode) return false;
+        this.exitAim();
+        if (this.items.hammer > 0) {
+          this.items.hammer = 0;
+          this.itemSetUsed.hammer?.();
+          this.markAct();
+          this.ctrl.useHammer('p1', p);
+        }
+        return true;
+      },
       onLockTap: (p) => {
+        this.markAct();
         this.ctrl.submitTap('p1', p);
       },
       onSwapIntent: (a, b) => {
+        this.markAct();
         const r = this.ctrl.submitSwap('p1', a, b);
         if ('rejected' in r && r.rejected === 'cooldown') this.toast('🐌 被限流中，操作冷却…');
       },
@@ -164,7 +196,7 @@ export class BattleScene extends Phaser.Scene {
     // ---------- 底部：能量 + 大招 ----------
     this.energyBar = new EnergyBar(this, BOARD_X, 1075, 470, 46);
     this.add
-      .text(BOARD_X, 1118, `本命色 ${['📊', '⚡', '🧠', '🔋', '💾', '🔮'][this.myChar.mainColor]} 充能翻倍`, {
+      .text(BOARD_X, 1118, `本命色「${COLOR_NAME[this.myChar.mainColor]}」充能翻倍`, {
         fontFamily: UI_FONT,
         fontSize: '20px',
         color: '#5e5c70',
@@ -182,6 +214,7 @@ export class BattleScene extends Phaser.Scene {
     this.ultBtnBg.on('pointerdown', () => {
       if (this.ctrl.over) return;
       if (this.ctrl.state('p1').energy >= BATTLE.energyMax) {
+        this.markAct();
         this.ctrl.castSkill('p1');
       } else {
         this.toast('能量不足，先消除攒能量');
@@ -189,12 +222,21 @@ export class BattleScene extends Phaser.Scene {
     });
     void ultEmoji;
 
+    // ---------- 道具栏（每局各 1 次） ----------
+    this.buildItemBar();
+
     // ---------- 控制器事件接线 ----------
     this.wireController(difficultyId, diff.label);
 
     if (import.meta.env.DEV) {
       (window as unknown as Record<string, unknown>).__battle = this;
     }
+
+    // 开场提示对手打法风格（角色差异第一感知点）
+    this.lastActAt = this.time.now;
+    this.time.delayedCall(1500, () => {
+      if (!this.ctrl.over) this.toast(`⚔️ 对手风格：${BOT_STYLES[this.oppChar.id].styleDesc}`, 3200);
+    });
 
     // 开场嘴炮
     this.director = new TauntDirector({
@@ -214,8 +256,12 @@ export class BattleScene extends Phaser.Scene {
 
   private wireController(difficultyId: string, difficultyLabel: string): void {
     this.ctrl.on('steps', ({ side, steps }) => {
-      if (side === 'p1') this.mainPlayer.enqueue(steps);
-      else this.miniPlayer.enqueue(steps);
+      if (side === 'p1') {
+        this.stopHint(); // 棋盘将变化，提示位置作废
+        this.mainPlayer.enqueue(steps);
+      } else {
+        this.miniPlayer.enqueue(steps);
+      }
     });
 
     this.ctrl.on('damage', ({ side, amount, hp }) => {
@@ -231,24 +277,62 @@ export class BattleScene extends Phaser.Scene {
     });
 
     this.ctrl.on('energy', ({ side, energy }) => {
-      if (side === 'p1') this.energyBar.set(energy);
-      else this.oppEnergyFill.displayWidth = Math.max(0.001, 328 * (energy / BATTLE.energyMax));
+      if (side === 'p1') {
+        this.energyBar.set(energy);
+      } else {
+        this.oppEnergyFill.displayWidth = Math.max(0.001, 328 * (energy / BATTLE.energyMax));
+        // 对手大招蓄满：红圈警告
+        if (energy >= BATTLE.energyMax && !this.oppFullRing) {
+          this.oppFullRing = this.add.circle(70, 105, 62).setStrokeStyle(5, 0xe53170, 1).setDepth(20);
+          this.tweens.add({
+            targets: this.oppFullRing,
+            alpha: { from: 1, to: 0.25 },
+            scale: { from: 1, to: 1.14 },
+            yoyo: true,
+            repeat: -1,
+            duration: 380,
+          });
+          this.toast('⚠️ 对手大招已蓄满！');
+        } else if (energy < BATTLE.energyMax && this.oppFullRing) {
+          this.tweens.killTweensOf(this.oppFullRing);
+          this.oppFullRing.destroy();
+          this.oppFullRing = undefined;
+        }
+      }
     });
 
     this.ctrl.on('combo', ({ side, combo, cleared, fusion }) => {
-      if (side !== 'p1') return;
-      this.lastCombo = combo;
-      if (combo >= 2 || fusion) {
-        const msg = fusion ? '⚡ FUSION!' : `COMBO ×${combo}`;
-        this.comboPop(msg, combo);
+      if (side === 'p1') {
+        this.lastCombo = combo;
+        if (combo >= 2 || fusion) {
+          const msg = fusion ? '⚡ FUSION!' : `COMBO ×${combo}`;
+          this.comboPop(msg, combo);
+        }
+      } else if (combo >= 3 || fusion) {
+        this.oppComboWarn(combo);
       }
       void cleared;
+    });
+
+    this.ctrl.on('heal', ({ side, amount, hp }) => {
+      if (side === 'p1') {
+        this.myHpBar.set(hp);
+        this.floatText(BOARD_X + 300, 268, `+${amount}`, '#2cb67d', 32);
+      } else {
+        this.oppHpBar.set(hp);
+      }
+    });
+
+    this.ctrl.on('passiveProc', ({ side, text }) => {
+      if (side === 'p1') this.floatText(GAME_W / 2, BOARD_Y + 36, text, '#2cb67d', 24);
+      else this.toast(text);
     });
 
     this.ctrl.on('skill', ({ side, char }) => {
       sfx.ult();
       this.cameras.main.shake(220, 0.006);
-      this.banner(`${char.emoji}「${char.ultName}」`, side === 'p1' ? '#ffd803' : '#e53170');
+      const accent = `#${char.accent.toString(16).padStart(6, '0')}`;
+      this.banner(`${char.emoji}「${char.ultName}」`, accent, side === 'p2' ? char.ultDesc : undefined);
     });
 
     this.ctrl.on('debuff', ({ side, type, ms }) => {
@@ -257,15 +341,13 @@ export class BattleScene extends Phaser.Scene {
     });
 
     this.ctrl.on('attack', ({ to, plan, reflected, dodged }) => {
-      if (dodged) {
-        this.toast(to === 'p1' ? '✋ 宪法审查：干扰被无效化' : '对手闪避了你的干扰');
-        return;
-      }
+      if (dodged) return; // passiveProc 已播报
       if (reflected) {
         this.toast(to === 'p1' ? '🛡 干扰被反弹回来了！' : '🛡 护盾反弹成功！');
         return;
       }
       if (to === 'p1') {
+        this.attackProjectile();
         const parts: string[] = [];
         if (plan.garbage) parts.push(`💩脏数据×${plan.garbage}`);
         if (plan.locks) parts.push('🔒验证码锁');
@@ -291,6 +373,8 @@ export class BattleScene extends Phaser.Scene {
   private endBattle(winner: Side | 'draw', byTimeout: boolean, difficultyId: string, difficultyLabel: string): void {
     if (this.ending) return;
     this.ending = true;
+    this.exitAim();
+    this.stopHint();
     this.director.dispose();
     const payload: ResultPayload = {
       outcome: winner === 'draw' ? 'draw' : winner === 'p1' ? 'win' : 'lose',
@@ -317,10 +401,30 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     if (!this.ending) {
       this.ctrl.update(delta);
-      this.bot.update(delta);
+      // 拔网线期间对手不行动
+      if (time >= this.botFrozenUntil) {
+        this.bot.update(delta);
+        if (this.freezeText) {
+          this.freezeText.destroy();
+          this.freezeText = undefined;
+          this.oppAvatar.setAlpha(1);
+          this.toast('对手已重新连线…');
+        }
+      } else if (this.freezeText) {
+        this.freezeText.setText(`📵 离线 ${Math.ceil((this.botFrozenUntil - time) / 1000)}s`);
+      }
+      // 发呆 5 秒：抖一抖可行步
+      if (
+        !this.ctrl.over &&
+        !this.hintTweens.length &&
+        !this.mainPlayer.busy &&
+        time - this.lastActAt > BATTLE.hintIdleMs
+      ) {
+        this.startHint();
+      }
     }
     this.director?.update();
 
@@ -342,8 +446,174 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  // ---------- 道具栏 ----------
+  private buildItemBar(): void {
+    const defs: { key: 'hammer' | 'patch' | 'unplug'; emoji: string; name: string; onClick: () => void }[] = [
+      {
+        key: 'hammer',
+        emoji: '🔨',
+        name: '人工干预',
+        onClick: () => {
+          if (this.aimMode) {
+            this.exitAim();
+            this.toast('已取消瞄准');
+            return;
+          }
+          this.aimMode = true;
+          this.aimText = this.add
+            .text(GAME_W / 2, BOARD_Y - 34, '🎯 点击棋盘任意格，引爆 3×3（再点按钮取消）', {
+              fontFamily: UI_FONT,
+              fontSize: '24px',
+              color: '#0f0e17',
+              backgroundColor: '#ffd803',
+              padding: { x: 12, y: 6 },
+            })
+            .setOrigin(0.5)
+            .setDepth(62);
+        },
+      },
+      {
+        key: 'patch',
+        emoji: '🩹',
+        name: '热修复',
+        onClick: () => {
+          if (this.ctrl.useHeal('p1', BATTLE.itemHealAmount)) {
+            this.items.patch = 0;
+            this.itemSetUsed.patch?.();
+            sfx.unlock();
+            this.markAct();
+          } else {
+            this.toast('血量已满，不用修');
+          }
+        },
+      },
+      {
+        key: 'unplug',
+        emoji: '🔌',
+        name: '拔网线',
+        onClick: () => {
+          this.items.unplug = 0;
+          this.itemSetUsed.unplug?.();
+          this.botFrozenUntil = this.time.now + BATTLE.itemUnplugMs;
+          sfx.glitch();
+          this.toast(`🔌 已拔对手网线 ${Math.round(BATTLE.itemUnplugMs / 1000)} 秒！趁现在猛打！`, 2200);
+          this.freezeText = this.add
+            .text(70, 178, '📵 离线中', {
+              fontFamily: UI_FONT,
+              fontSize: '20px',
+              fontStyle: 'bold',
+              color: '#0f0e17',
+              backgroundColor: '#e53170',
+              padding: { x: 8, y: 3 },
+            })
+            .setOrigin(0.5)
+            .setDepth(40);
+          this.oppAvatar.setAlpha(0.4);
+          this.director.notify('botLocked'); // 它会为此破防
+          this.markAct();
+        },
+      },
+    ];
+    defs.forEach((d, i) => {
+      const x = 86 + i * 112;
+      const y = 1196;
+      const circle = this.add.circle(x, y, 42, 0x1f1d33).setStrokeStyle(3, 0x2cb67d, 1);
+      const emoji = this.add.text(x, y - 4, d.emoji, { fontSize: '36px' }).setOrigin(0.5);
+      this.add
+        .text(x, y + 58, d.name, { fontFamily: UI_FONT, fontSize: '18px', color: '#a7a9be' })
+        .setOrigin(0.5);
+      circle.setInteractive({ useHandCursor: true });
+      circle.on('pointerdown', () => {
+        if (this.ctrl.over) return;
+        if (this.items[d.key] <= 0) {
+          sfx.invalid();
+          this.toast('本局道具已用完');
+          return;
+        }
+        sfx.click();
+        d.onClick();
+      });
+      this.itemSetUsed[d.key] = () => {
+        circle.setFillStyle(0x141320, 1).setStrokeStyle(2, 0x2e2e3e, 0.6);
+        emoji.setAlpha(0.25);
+      };
+    });
+  }
+
+  private exitAim(): void {
+    this.aimMode = false;
+    this.aimText?.destroy();
+    this.aimText = undefined;
+  }
+
+  // ---------- 闲置提示（发呆 5 秒抖一抖最优步） ----------
+  private markAct(): void {
+    this.lastActAt = this.time.now;
+    this.stopHint();
+  }
+
+  private startHint(): void {
+    const engine = this.ctrl.state('p1').engine;
+    const move = scoreMoves(engine, this.myChar.mainColor)[0];
+    if (!move) return;
+    for (const pos of [move.a, move.b]) {
+      const id = this.mainView.pieceIdAt(pos);
+      if (id === null) continue;
+      const pv = this.mainView.spriteOf(id);
+      if (!pv) continue;
+      this.hintSprites.push(pv.root);
+      this.hintTweens.push(
+        this.tweens.add({
+          targets: pv.root,
+          angle: { from: -7, to: 7 },
+          scale: { from: 1, to: 1.08 },
+          yoyo: true,
+          repeat: -1,
+          duration: 150,
+          ease: 'Sine.easeInOut',
+        }),
+      );
+    }
+  }
+
+  private stopHint(): void {
+    for (const t of this.hintTweens) t.remove();
+    for (const s of this.hintSprites) s.setAngle(0).setScale(1);
+    this.hintTweens = [];
+    this.hintSprites = [];
+  }
+
+  // ---------- 对手高光演出 ----------
+  private oppComboWarn(combo: number): void {
+    this.floatText(GAME_W / 2, 212, `⚠️ 对手连击 ×${combo}`, '#e53170', 36);
+    sfx.glitch();
+    this.tweens.add({ targets: this.oppAvatar, scale: { from: 1, to: 1.22 }, yoyo: true, repeat: 1, duration: 130 });
+  }
+
+  /** 攻击可视化：红色光弹从对手头像飞向你的棋盘 */
+  private attackProjectile(): void {
+    const tx = GAME_W / 2;
+    const ty = BOARD_Y + CELL * 4;
+    const orb = this.add.circle(70, 105, 13, 0xe53170, 0.95).setDepth(58).setBlendMode(Phaser.BlendModes.ADD);
+    const halo = this.add.circle(70, 105, 24, 0xe53170, 0.35).setDepth(57).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: [orb, halo],
+      x: tx,
+      y: ty,
+      duration: 330,
+      ease: 'Quad.easeIn',
+      onComplete: () => {
+        orb.destroy();
+        halo.destroy();
+        this.cameras.main.shake(110, 0.004);
+        const boom = this.add.circle(tx, ty, 18, 0xe53170, 0.7).setDepth(58).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: boom, scale: 4.5, alpha: 0, duration: 300, onComplete: () => boom.destroy() });
+      },
+    });
+  }
+
   // ---------- 小部件 ----------
-  private toast(msg: string): void {
+  private toast(msg: string, holdMs = 1500): void {
     this.toastText?.destroy();
     const t = this.add
       .text(GAME_W / 2, BOARD_Y - 70, msg, {
@@ -352,11 +622,13 @@ export class BattleScene extends Phaser.Scene {
         color: '#fffffe',
         backgroundColor: 'rgba(15,14,23,0.9)',
         padding: { x: 14, y: 8 },
+        wordWrap: { width: 660 },
+        align: 'center',
       })
       .setOrigin(0.5)
       .setDepth(60);
     this.toastText = t;
-    this.tweens.add({ targets: t, alpha: 0, delay: 1500, duration: 320, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, alpha: 0, delay: holdMs, duration: 320, onComplete: () => t.destroy() });
   }
 
   private floatText(x: number, y: number, msg: string, color: string, size: number): void {
@@ -385,10 +657,11 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: t, alpha: 0, y: t.y - 40, delay: 520, duration: 320, onComplete: () => t.destroy() });
   }
 
-  private banner(msg: string, color: string): void {
-    const veil = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, 150, 0x0f0e17, 0.78).setDepth(70);
+  private banner(msg: string, color: string, sub?: string): void {
+    const h = sub ? 200 : 150;
+    const veil = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, h, 0x0f0e17, 0.82).setDepth(70);
     const t = this.add
-      .text(GAME_W / 2, GAME_H / 2, msg, {
+      .text(GAME_W / 2, GAME_H / 2 - (sub ? 24 : 0), msg, {
         fontFamily: UI_FONT,
         fontSize: '56px',
         fontStyle: 'bold',
@@ -399,9 +672,31 @@ export class BattleScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(71)
       .setScale(0.5);
+    const subText = sub
+      ? this.add
+          .text(GAME_W / 2, GAME_H / 2 + 38, sub, {
+            fontFamily: UI_FONT,
+            fontSize: '24px',
+            color: '#fffffe',
+            wordWrap: { width: 640 },
+            align: 'center',
+          })
+          .setOrigin(0.5)
+          .setDepth(71)
+      : null;
     this.tweens.add({ targets: t, scale: 1, duration: 200, ease: 'Back.easeOut' });
-    this.time.delayedCall(950, () => {
-      this.tweens.add({ targets: [veil, t], alpha: 0, duration: 240, onComplete: () => { veil.destroy(); t.destroy(); } });
+    this.time.delayedCall(sub ? 1400 : 950, () => {
+      const targets = subText ? [veil, t, subText] : [veil, t];
+      this.tweens.add({
+        targets,
+        alpha: 0,
+        duration: 240,
+        onComplete: () => {
+          veil.destroy();
+          t.destroy();
+          subText?.destroy();
+        },
+      });
     });
   }
 }

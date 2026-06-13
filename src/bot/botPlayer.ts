@@ -1,6 +1,7 @@
 import { BATTLE, type DifficultyDef } from '../config';
 import { mulberry32, type RNG } from '../engine/rng';
 import type { BattleController, Side } from '../battle/battleController';
+import { BOT_STYLES, type CharWeights } from './botStyles';
 import { pickMove, rollCastDelay, rollInterval } from './difficulty';
 import { scoreMoves } from './evaluator';
 
@@ -12,6 +13,7 @@ export class BotPlayer {
   private rng: RNG;
   private timer: number;
   private castAt: number | null = null;
+  private weights: Partial<CharWeights>;
 
   constructor(
     private ctrl: BattleController,
@@ -23,6 +25,8 @@ export class BotPlayer {
   ) {
     this.rng = mulberry32(seed);
     this.timer = rollInterval(diff, this.rng) * this.intervalMul;
+    // 角色打法风格：同难度下不同对手的选步偏好截然不同
+    this.weights = BOT_STYLES[ctrl.state(side).char.id]?.weights ?? {};
   }
 
   update(dtMs: number): void {
@@ -62,7 +66,7 @@ export class BotPlayer {
 
     // 3. 选步交换
     if (this.ctrl.inputBlocked(this.side)) return; // 限流中，这次思考作废
-    const moves = scoreMoves(engine, me.char.mainColor);
+    const moves = scoreMoves(engine, me.char.mainColor, this.weights);
     if (!moves.length) return; // 引擎 stabilize 兜底，不应出现
     const m = pickMove(this.diff.id, moves, this.rng);
     this.ctrl.submitSwap(this.side, m.a, m.b);

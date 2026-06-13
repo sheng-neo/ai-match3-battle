@@ -3,6 +3,7 @@ import { MatchEngine } from '../engine/engine';
 import { buildGroups } from '../engine/matcher';
 import { classifyFusion, type FusionKind } from '../engine/specials';
 import { Color, PieceKind, Pos, posKey } from '../engine/types';
+import { DEFAULT_WEIGHTS, type CharWeights } from './botStyles';
 
 export interface ScoredMove {
   a: Pos;
@@ -24,8 +25,10 @@ const SHAPE_BONUS: Record<string, number> = { line3: 0, line4: 8, LT: 10, line5:
 /**
  * 轻量评估：临时交换 → 检测匹配组打分 → 换回。
  * 不执行级联、不消耗 rng（级联收益视为噪声），~112 次评估 <1ms。
+ * weights：角色打法风格（伤害流/特殊块流/本命色流/净化流）。
  */
-export function scoreMoves(engine: MatchEngine, mainColor: Color): ScoredMove[] {
+export function scoreMoves(engine: MatchEngine, mainColor: Color, weights?: Partial<CharWeights>): ScoredMove[] {
+  const w: CharWeights = { ...DEFAULT_WEIGHTS, ...(weights ?? {}) };
   const grid = engine.getGrid();
   const out: ScoredMove[] = [];
 
@@ -34,7 +37,7 @@ export function scoreMoves(engine: MatchEngine, mainColor: Color): ScoredMove[] 
     const pb = grid[b.y][b.x]!;
     const fusion = classifyFusion(pa, pb);
     if (fusion) {
-      out.push({ a, b, score: FUSION_SCORE[fusion] });
+      out.push({ a, b, score: FUSION_SCORE[fusion] * w.special });
       continue;
     }
 
@@ -44,7 +47,7 @@ export function scoreMoves(engine: MatchEngine, mainColor: Color): ScoredMove[] 
     if (groups.length) {
       const cells = new Map<number, Pos>();
       for (const g of groups) {
-        score += SHAPE_BONUS[g.shape] ?? 0;
+        score += (SHAPE_BONUS[g.shape] ?? 0) * w.special;
         for (const c of g.cells) cells.set(posKey(c), c);
       }
       let mainCount = 0;
@@ -70,7 +73,7 @@ export function scoreMoves(engine: MatchEngine, mainColor: Color): ScoredMove[] 
           }
         }
       }
-      score += cells.size + mainCount * 1.5 + garbageAdj * 4;
+      score += cells.size * w.damage + mainCount * 1.5 * w.main + garbageAdj * 4 * w.purify;
     }
     swapCells(grid, a, b); // 还原
 

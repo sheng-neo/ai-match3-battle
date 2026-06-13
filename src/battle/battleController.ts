@@ -34,7 +34,7 @@ export interface CombatantState {
   lowHpNotified: boolean;
 }
 
-/** 模式修饰符：爬塔/无尽/每日用来改变战局规则 */
+/** 模式修饰符：爬塔/无尽/每日/复活用来改变战局规则 */
 export interface BattleModifiers {
   p1HpMul?: number;
   p2HpMul?: number;
@@ -42,6 +42,8 @@ export interface BattleModifiers {
   p2DamageMul?: number;
   /** 无尽模式血量继承：p1 的初始 HP（绝对值，受 maxHp 截断） */
   p1StartHp?: number;
+  /** 复活再战：对手保留剩余血量 */
+  p2StartHp?: number;
   durationMs?: number;
   startGarbageP1?: number;
   startLocksP1?: number;
@@ -55,6 +57,9 @@ export interface BattleEvents {
   energy: { side: Side; energy: number };
   combo: { side: Side; combo: number; cleared: number; fusion: boolean };
   attack: { from: Side; to: Side; plan: AttackPlan; reflected: boolean; dodged: boolean };
+  heal: { side: Side; amount: number; hp: number };
+  /** 角色被动触发（差异化可视：UI 实时播报） */
+  passiveProc: { side: Side; text: string };
   skill: { side: Side; char: CharacterDef };
   debuff: { side: Side; type: 'ratelimit' | 'shield'; ms: number };
   rejected: { side: Side; reason: RejectReason };
@@ -110,6 +115,9 @@ export class BattleController {
     };
     if (mods.p1StartHp !== undefined) {
       this.combatants.p1.hp = Math.max(1, Math.min(this.combatants.p1.maxHp, Math.round(mods.p1StartHp)));
+    }
+    if (mods.p2StartHp !== undefined) {
+      this.combatants.p2.hp = Math.max(1, Math.min(this.combatants.p2.maxHp, Math.round(mods.p2StartHp)));
     }
     // 开局干扰（在渲染层 init 之前生效，事件无需对外发）
     if (mods.startGarbageP1) this.combatants.p1.engine.applyGarbage(mods.startGarbageP1);
@@ -267,7 +275,9 @@ export class BattleController {
     // 充能（开源侠：净化脏数据额外回能）
     let gain = energyGain(s, me.char.mainColor, me.char.passive.energyMul ?? 1);
     if (me.char.passive.purifyEnergy && s.garbagePurged > 0) {
-      gain += s.garbagePurged * me.char.passive.purifyEnergy;
+      const extra = s.garbagePurged * me.char.passive.purifyEnergy;
+      gain += extra;
+      this.emit('passiveProc', { side, text: `🦙 ${me.char.passiveName}：净化回能 +${extra}` });
     }
     if (gain > 0) {
       me.energy = Math.min(BATTLE.energyMax, me.energy + gain);
@@ -277,13 +287,19 @@ export class BattleController {
     // 被动：认知污染（连击≥3 给对手随机变色）
     if (me.char.passive.comboScramble && s.maxCombo >= 3 && !this.over) {
       const steps = o.engine.scrambleColors(me.char.passive.comboScramble);
-      if (steps.length) this.emit('steps', { side: oppSide, steps });
+      if (steps.length) {
+        this.emit('steps', { side: oppSide, steps });
+        this.emit('passiveProc', { side, text: `🍄 ${me.char.passiveName}：污染了对方棋盘` });
+      }
     }
     // 被动：镜像分身（生成特殊块时概率追加激光）
     if (me.char.passive.twinChance && s.specialsCreated.length > 0 && this.rng.next() < me.char.passive.twinChance) {
       const laser = this.rng.next() < 0.5 ? Special.RowLaser : Special.ColLaser;
       const steps = me.engine.promoteSpecials([laser]);
-      if (steps.length) this.emit('steps', { side, steps });
+      if (steps.length) {
+        this.emit('steps', { side, steps });
+        this.emit('passiveProc', { side, text: `👯 ${me.char.passiveName}：追加一道激光！` });
+      }
     }
 
     me.stats.maxCombo = Math.max(me.stats.maxCombo, s.maxCombo);
@@ -313,6 +329,7 @@ export class BattleController {
       reflected = true;
     } else if (victim0.char.passive.dodge && this.rng.next() < victim0.char.passive.dodge) {
       dodged = true;
+      this.emit('passiveProc', { side: to, text: `🦉 ${victim0.char.passiveName}：干扰被无效化` });
     }
 
     if (!dodged) {
@@ -337,6 +354,35 @@ export class BattleController {
 
     this.combatants[from].stats.attacksSent++;
     this.emit('attack', { from, to: target, plan, reflected, dodged });
+  }
+
+  /** 道具：人工干预锤 —— 引爆指定中心 3×3（照常计伤与充能） */
+  useHammer(side: Side, center: Pos): boolean {
+    if (this.over) return false;
+    const cells: Pos[] = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = center.x + dx;
+        const y = center.y + dy;
+        if (x >= 0 && x < 8 && y >= 0 && y < 8) cells.push({ x, y });
+      }
+    }
+    const r = this.combatants[side].engine.clearGivenCells(cells);
+    if (!r.summary.valid) return false;
+    if (r.steps.length) this.emit('steps', { side, steps: r.steps });
+    this.applyOutcome(side, r);
+    return true;
+  }
+
+  /** 道具：热修复补丁 —— 回血 */
+  useHeal(side: Side, amount: number): boolean {
+    if (this.over) return false;
+    const c = this.combatants[side];
+    if (c.hp >= c.maxHp) return false;
+    const healed = Math.min(c.maxHp, c.hp + amount) - c.hp;
+    c.hp += healed;
+    this.emit('heal', { side, amount: healed, hp: c.hp });
+    return true;
   }
 
   private checkLowHp(): void {
