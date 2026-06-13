@@ -29,6 +29,14 @@ function tauntDevApi(): Plugin {
           }
         });
       });
+
+      // 见证者计数（dev：内存计数，含一个起始基数方便观察滚动动画）
+      let devWitness = 42;
+      server.middlewares.use('/api/witness', (req, res) => {
+        res.setHeader('content-type', 'application/json');
+        if (req.method === 'POST') devWitness += 1;
+        res.end(JSON.stringify({ count: devWitness }));
+      });
     },
   };
 }

@@ -5,12 +5,35 @@
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleTauntRequest } from './tauntHandler.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const STATIC_DIR = process.env.STATIC_DIR || join(fileURLToPath(new URL('.', import.meta.url)), '..', 'dist');
+
+// ---- 见证者计数（持久化到 DATA_DIR；无卷时退化为内存，重启清零但不报错）----
+const DATA_DIR = process.env.DATA_DIR || join(fileURLToPath(new URL('.', import.meta.url)), '..', '.data');
+const WITNESS_FILE = join(DATA_DIR, 'witness.json');
+let witness = { count: 0 };
+try {
+  mkdirSync(DATA_DIR, { recursive: true });
+  if (existsSync(WITNESS_FILE)) {
+    const parsed = JSON.parse(readFileSync(WITNESS_FILE, 'utf8'));
+    if (parsed && typeof parsed.count === 'number') witness = parsed;
+  }
+} catch {
+  /* 退化为内存计数 */
+}
+function saveWitness() {
+  try {
+    writeFileSync(WITNESS_FILE, JSON.stringify(witness));
+  } catch {
+    /* 忽略：无写权限时仅内存计数 */
+  }
+}
+const witnessSeen = new Set();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -65,6 +88,22 @@ const server = createServer(async (req, res) => {
   if (path === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end('{"ok":true}');
+    return;
+  }
+
+  if (path === '/api/witness') {
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'POST') {
+      const ip = (req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').toString().split(',')[0].trim();
+      if (ip && !witnessSeen.has(ip)) {
+        witnessSeen.add(ip);
+        witness.count += 1;
+        saveWitness();
+        if (witnessSeen.size > 100000) witnessSeen.clear();
+      }
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify({ count: witness.count }));
     return;
   }
 

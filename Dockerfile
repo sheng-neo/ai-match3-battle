@@ -17,4 +17,5 @@ COPY --from=build /app/server ./server
 EXPOSE 8080
 ENV PORT=8080
 ENV STATIC_DIR=/app/dist
+ENV DATA_DIR=/data
 CMD ["node", "server/index.mjs"]

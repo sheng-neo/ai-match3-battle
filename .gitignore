@@ -1,6 +1,7 @@
 node_modules/
 dist/
 server/tauntHandler.mjs
+.data/
 .env.local
 .env*.local
 .vercel/

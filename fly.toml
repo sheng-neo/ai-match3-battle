@@ -6,6 +6,15 @@ primary_region = "sin" # 新加坡
 [build]
   dockerfile = "Dockerfile"
 
+[env]
+  DATA_DIR = "/data"
+
+# 见证者计数持久化（/data/witness.json，跨部署不丢）。首发前需：
+#   fly volumes create match3_data --size 1 --region sin -a ai-match3-battle -y
+[[mounts]]
+  source = "match3_data"
+  destination = "/data"
+
 [http_service]
   internal_port = 8080
   force_https = true

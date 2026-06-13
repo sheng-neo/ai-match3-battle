@@ -487,3 +487,183 @@ export function bakeAllTextures(scene: Phaser.Scene): void {
     tex.refresh();
   }
 }
+
+// ============ 首页（MenuScene）科幻 HUD 纹理 ============
+
+const MENU_CN_FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Heiti SC",sans-serif';
+
+function chamferPath(
+  ctx: CanvasRenderingContext2D,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  ch: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x0 + ch, y0);
+  ctx.lineTo(x1 - ch, y0);
+  ctx.lineTo(x1, y0 + ch);
+  ctx.lineTo(x1, y1 - ch);
+  ctx.lineTo(x1 - ch, y1);
+  ctx.lineTo(x0 + ch, y1);
+  ctx.lineTo(x0, y1 - ch);
+  ctx.lineTo(x0, y0 + ch);
+  ctx.closePath();
+}
+
+/** 发光斜切边框卡片（每个模式一个配色） */
+function bakeMenuCard(scene: Phaser.Scene, key: string, accent: number): void {
+  if (scene.textures.exists(key)) return;
+  const W = 1320;
+  const H = 312;
+  const tex = scene.textures.createCanvas(key, W, H);
+  if (!tex) return;
+  const ctx = tex.context;
+  const m = 50;
+  const ch = 30;
+  const x0 = m;
+  const y0 = m;
+  const x1 = W - m;
+  const y1 = H - m;
+
+  // 渐变填充：顶部带配色染色，底部近黑
+  const grad = ctx.createLinearGradient(0, y0, 0, y1);
+  grad.addColorStop(0, shade(accent, -0.08, 0.34));
+  grad.addColorStop(0.55, 'rgba(18,17,30,0.94)');
+  grad.addColorStop(1, 'rgba(11,10,20,0.97)');
+  chamferPath(ctx, x0, y0, x1, y1, ch);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 外发光描边
+  chamferPath(ctx, x0, y0, x1, y1, ch);
+  ctx.shadowColor = shade(accent, 0.15, 1);
+  ctx.shadowBlur = 30;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = shade(accent, 0.2, 0.95);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 内层亮线
+  chamferPath(ctx, x0 + 8, y0 + 8, x1 - 8, y1 - 8, ch - 5);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = shade(accent, 0.55, 0.8);
+  ctx.stroke();
+
+  // 左侧竖向能量条
+  ctx.fillStyle = shade(accent, 0.3, 0.95);
+  ctx.fillRect(x0 + 18, y0 + 50, 8, H - 2 * m - 100);
+
+  tex.refresh();
+}
+
+/** 斜切方形 + 发光箭头按钮 */
+function bakeMenuChevron(scene: Phaser.Scene, key: string, accent: number): void {
+  if (scene.textures.exists(key)) return;
+  const S = 168;
+  const tex = scene.textures.createCanvas(key, S, S);
+  if (!tex) return;
+  const ctx = tex.context;
+  const m = 30;
+  const ch = 20;
+  chamferPath(ctx, m, m, S - m, S - m, ch);
+  ctx.fillStyle = shade(accent, -0.35, 0.55);
+  ctx.fill();
+  chamferPath(ctx, m, m, S - m, S - m, ch);
+  ctx.shadowColor = shade(accent, 0.2, 1);
+  ctx.shadowBlur = 16;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = shade(accent, 0.25, 0.95);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  // 箭头
+  const cx = S / 2;
+  const cy = S / 2;
+  ctx.strokeStyle = '#fffffe';
+  ctx.lineWidth = 11;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(255,255,255,0.9)';
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.moveTo(cx - 12, cy - 26);
+  ctx.lineTo(cx + 16, cy);
+  ctx.lineTo(cx - 12, cy + 26);
+  ctx.stroke();
+  tex.refresh();
+}
+
+/** 标题「消消乐」：白→蓝渐变 + 强发光 */
+function bakeMenuTitle(scene: Phaser.Scene): void {
+  const key = 'menu-title';
+  if (scene.textures.exists(key)) return;
+  const W = 920;
+  const H = 360;
+  const tex = scene.textures.createCanvas(key, W, H);
+  if (!tex) return;
+  const ctx = tex.context;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `bold 200px ${MENU_CN_FONT}`;
+  const grad = ctx.createLinearGradient(0, 60, 0, H - 40);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.5, '#dbe6ff');
+  grad.addColorStop(1, '#8ab4ff');
+  ctx.fillStyle = grad;
+  ctx.shadowColor = 'rgba(91,124,255,0.9)';
+  ctx.shadowBlur = 48;
+  ctx.fillText('消消乐', W / 2, H / 2 + 8);
+  ctx.shadowBlur = 18;
+  ctx.fillText('消消乐', W / 2, H / 2 + 8);
+  tex.refresh();
+}
+
+/** 标题下的发光门环 */
+function bakeMenuPortal(scene: Phaser.Scene): void {
+  const key = 'menu-portal';
+  if (scene.textures.exists(key)) return;
+  const W = 1040;
+  const H = 340;
+  const tex = scene.textures.createCanvas(key, W, H);
+  if (!tex) return;
+  const ctx = tex.context;
+  const cx = W / 2;
+  const cy = H / 2 + 20;
+  for (let i = 0; i < 4; i++) {
+    const rx = 460 - i * 80;
+    const ry = 102 - i * 21;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.shadowColor = 'rgba(120,140,255,0.9)';
+    ctx.shadowBlur = 30;
+    ctx.lineWidth = 5 - i;
+    ctx.strokeStyle = `rgba(${120 + i * 22},${150 + i * 10},255,${0.5 - i * 0.09})`;
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  const core = ctx.createLinearGradient(cx - 480, cy, cx + 480, cy);
+  core.addColorStop(0, 'rgba(150,180,255,0)');
+  core.addColorStop(0.5, 'rgba(205,222,255,0.85)');
+  core.addColorStop(1, 'rgba(150,180,255,0)');
+  ctx.fillStyle = core;
+  ctx.fillRect(cx - 480, cy - 3, 960, 6);
+  tex.refresh();
+}
+
+export const MENU_ACCENTS: Record<string, number> = {
+  tower: 0x9b6cff,
+  quick: 0x3da9fc,
+  endless: 0x2cd4c0,
+  daily: 0xffc23d,
+  ach: 0xff8c42,
+};
+
+export function bakeMenuTextures(scene: Phaser.Scene): void {
+  bakeMenuTitle(scene);
+  bakeMenuPortal(scene);
+  for (const [k, hex] of Object.entries(MENU_ACCENTS)) {
+    bakeMenuCard(scene, `mcard-${k}`, hex);
+    bakeMenuChevron(scene, `mchev-${k}`, hex);
+  }
+}
