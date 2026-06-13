@@ -316,11 +316,11 @@ export class StepPlayer {
     const beam = (horizontal: boolean, at: number, color: number): Promise<void[]> => {
       const jobs: Promise<void>[] = [];
       if (horizontal) {
-        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 1.05, color, 0.4));
-        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 0.4, 0xffffff, 0.9));
+        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 1.05, color, 0.32));
+        jobs.push(mk(boardPx / 2, at, boardPx, cellPx * 0.4, 0xffffff, 0.7));
       } else {
-        jobs.push(mk(at, boardPx / 2, cellPx * 1.05, boardPx, color, 0.4));
-        jobs.push(mk(at, boardPx / 2, cellPx * 0.4, boardPx, 0xffffff, 0.9));
+        jobs.push(mk(at, boardPx / 2, cellPx * 1.05, boardPx, color, 0.32));
+        jobs.push(mk(at, boardPx / 2, cellPx * 0.4, boardPx, 0xffffff, 0.7));
       }
       for (let i = 0; i < 8; i += 2) {
         const p = horizontal ? { x: i, y: Math.round(at / cellPx - 0.5) } : { x: Math.round(at / cellPx - 0.5), y: i };
@@ -349,15 +349,16 @@ export class StepPlayer {
         break;
       case Special.Singularity: {
         this.sfx('sing');
-        this.opts.onShake?.(0.008);
+        this.opts.onShake?.(0.006);
         v.ring(s.source, 0x7f5af0, 4.5, 460);
         v.ring(s.source, 0xfffffe, 3, 380);
         v.burst(s.source, 0x7f5af0, 22);
-        const jobs = [mk(boardPx / 2, boardPx / 2, boardPx, boardPx, 0x7f5af0, 0.4)];
+        // 注意控制亮度：全板色块降透明度，避免闪屏感
+        const jobs = [mk(boardPx / 2, boardPx / 2, boardPx, boardPx, 0x7f5af0, 0.18)];
         for (const p of s.affected.slice(0, 10)) {
           v.burst(p, 0x7f5af0, 5);
           const xy = v.cellXY(p);
-          jobs.push(mk(xy.x, xy.y, cellPx * 0.9, cellPx * 0.9, 0xffffff, 0.6));
+          jobs.push(mk(xy.x, xy.y, cellPx * 0.9, cellPx * 0.9, 0xffffff, 0.35));
         }
         await Promise.all(jobs);
         break;

@@ -128,7 +128,17 @@ export class ResultScene extends Phaser.Scene {
       if (!this.scene.isActive()) return;
       this.quote = res.line;
       this.quoteSource = res.source;
+      // 自适应：长句逐级缩字，仍放不下则截断，绝不溢出面板
+      let fontSize = 26;
+      quoteText.setFontSize(fontSize);
       quoteText.setText(`「${res.line}」`);
+      while (quoteText.height > 128 && fontSize > 19) {
+        fontSize -= 2;
+        quoteText.setFontSize(fontSize);
+      }
+      if (quoteText.height > 132) {
+        quoteText.setText(`「${[...res.line].slice(0, 56).join('')}…」`);
+      }
       if (res.source === 'ai') tag.setText(`${oppChar.emoji} 对手赛后锐评 ✨Claude 即兴`);
     });
 

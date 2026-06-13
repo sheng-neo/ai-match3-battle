@@ -433,6 +433,24 @@ export function bakeAllTextures(scene: Phaser.Scene): void {
     refresh(scene, key);
   }
 
+  // 受击红晕（边缘渐变，中心透明不挡棋盘）
+  {
+    const size = 256;
+    if (!scene.textures.exists('vignette')) {
+      const tex = scene.textures.createCanvas('vignette', size, size);
+      if (tex) {
+        const ctx = tex.context;
+        const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.32, size / 2, size / 2, size * 0.72);
+        g.addColorStop(0, 'rgba(229,49,112,0)');
+        g.addColorStop(0.75, 'rgba(229,49,112,0.45)');
+        g.addColorStop(1, 'rgba(229,49,112,0.85)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+        tex.refresh();
+      }
+    }
+  }
+
   // 粒子火花
   {
     const ctx = makeCanvas(scene, 'spark', 16);

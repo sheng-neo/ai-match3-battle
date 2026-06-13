@@ -50,7 +50,17 @@ export class TauntBubble {
     this.scene.tweens.killTweensOf(this.container);
 
     this.badge.setVisible(source === 'ai');
+    // 自适应：先按默认字号排版，过高则逐级缩小，仍超高则截断兜底
+    let fontSize = 26;
+    this.text.setFontSize(fontSize);
     this.text.setText(line);
+    while (this.text.getBounds().height > 150 && fontSize > 20) {
+      fontSize -= 2;
+      this.text.setFontSize(fontSize);
+    }
+    if (this.text.getBounds().height > 170) {
+      this.text.setText([...line].slice(0, 52).join('') + '…');
+    }
     const bounds = this.text.getBounds();
     const h = Math.max(54, bounds.height + 24);
     this.g.clear();

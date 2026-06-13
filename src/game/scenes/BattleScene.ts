@@ -79,6 +79,8 @@ export class BattleScene extends Phaser.Scene {
   private hintSprites: Phaser.GameObjects.Container[] = [];
   private oppAvatar!: Phaser.GameObjects.Image;
   private oppFullRing?: Phaser.GameObjects.Arc;
+  private hurtVignette!: Phaser.GameObjects.Image;
+  private lastVignetteAt = -99999;
 
   constructor() {
     super('Battle');
@@ -225,6 +227,13 @@ export class BattleScene extends Phaser.Scene {
     // ---------- 道具栏（每局各 1 次） ----------
     this.buildItemBar();
 
+    // 受击红晕（替代全屏爆闪：中心透明、边缘泛红，重击才触发）
+    this.hurtVignette = this.add
+      .image(GAME_W / 2, GAME_H / 2, 'vignette')
+      .setDisplaySize(GAME_W, GAME_H)
+      .setAlpha(0)
+      .setDepth(52);
+
     // ---------- 控制器事件接线 ----------
     this.wireController(difficultyId, diff.label);
 
@@ -269,7 +278,13 @@ export class BattleScene extends Phaser.Scene {
         this.myHpBar.set(hp);
         this.floatText(BOARD_X + CELL * 4, BOARD_Y - 24, `-${amount}`, '#e53170', 34);
         sfx.hurt();
-        this.cameras.main.flash(90, 229, 49, 112, false);
+        // 重击才出红晕，且 1.2s 节流 —— 避免磨血时高频闪屏
+        if (amount >= 6 && this.time.now - this.lastVignetteAt > 1200) {
+          this.lastVignetteAt = this.time.now;
+          this.tweens.killTweensOf(this.hurtVignette);
+          this.hurtVignette.setAlpha(Math.min(0.6, 0.22 + amount * 0.015));
+          this.tweens.add({ targets: this.hurtVignette, alpha: 0, duration: 380, ease: 'Quad.easeOut' });
+        }
       } else {
         this.oppHpBar.set(hp);
         this.floatText(300, 136, `-${amount}`, '#ffd803', 30);
@@ -613,7 +628,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   // ---------- 小部件 ----------
-  private toast(msg: string, holdMs = 1500): void {
+  private toast(msg: string, holdMs = 2300): void {
     this.toastText?.destroy();
     const t = this.add
       .text(GAME_W / 2, BOARD_Y - 70, msg, {
@@ -636,7 +651,16 @@ export class BattleScene extends Phaser.Scene {
       .text(x, y, msg, { fontFamily: UI_FONT, fontSize: `${size}px`, fontStyle: 'bold', color, stroke: '#000', strokeThickness: 4 })
       .setOrigin(0.5)
       .setDepth(55);
-    this.tweens.add({ targets: t, y: y - 56, alpha: 0, duration: 900, ease: 'Quad.easeOut', onComplete: () => t.destroy() });
+    // 先停留再缓慢上飘，留足阅读时间
+    this.tweens.add({
+      targets: t,
+      y: y - 46,
+      alpha: 0,
+      delay: 700,
+      duration: 900,
+      ease: 'Quad.easeOut',
+      onComplete: () => t.destroy(),
+    });
   }
 
   private comboPop(msg: string, combo: number): void {
@@ -654,7 +678,7 @@ export class BattleScene extends Phaser.Scene {
       .setScale(0.4)
       .setAlpha(0.95);
     this.tweens.add({ targets: t, scale: 1, duration: 160, ease: 'Back.easeOut' });
-    this.tweens.add({ targets: t, alpha: 0, y: t.y - 40, delay: 520, duration: 320, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, alpha: 0, y: t.y - 40, delay: 950, duration: 360, onComplete: () => t.destroy() });
   }
 
   private banner(msg: string, color: string, sub?: string): void {
@@ -685,7 +709,7 @@ export class BattleScene extends Phaser.Scene {
           .setDepth(71)
       : null;
     this.tweens.add({ targets: t, scale: 1, duration: 200, ease: 'Back.easeOut' });
-    this.time.delayedCall(sub ? 1400 : 950, () => {
+    this.time.delayedCall(sub ? 2100 : 1300, () => {
       const targets = subText ? [veil, t, subText] : [veil, t];
       this.tweens.add({
         targets,
